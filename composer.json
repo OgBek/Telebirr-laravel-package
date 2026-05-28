@@ -1,0 +1,41 @@
+{
+    "name": "bekambeyene/telebirr",
+    "description": "Telebirr payment gateway integration for PHP and Laravel 11, 12, and 13.",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Bekam Beyene",
+            "email": "bekam@example.com"
+        }
+    ],
+    "minimum-stability": "stable",
+    "require": {
+        "php": "^8.2",
+        "guzzlehttp/guzzle": "^7.8",
+        "phpseclib/phpseclib": "^3.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^10.0 || ^11.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Bekambeyene\\Telebirr\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Bekambeyene\\Telebirr\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Bekambeyene\\Telebirr\\Laravel\\TelebirrServiceProvider"
+            ],
+            "aliases": {
+                "Telebirr": "Bekambeyene\\Telebirr\\Laravel\\Facades\\Telebirr"
+            }
+        }
+    }
+}
