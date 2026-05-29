@@ -3,7 +3,6 @@
 namespace Bekambeyene\Telebirr;
 
 use GuzzleHttp\Client;
-use GuzzleHttp\Exception\GuzzleException;
 use Exception;
 
 class TelebirrClient
@@ -52,10 +51,12 @@ class TelebirrClient
     /**
      * Get the Fabric Token
      */
-    public function getFabricToken(): string
+    public function getFabricToken()
     {
         try {
+            // Ensure no double slashes if base url has trailing slash
             $url = rtrim($this->baseUrl, '/') . '/payment/v1/token';
+            
             $this->log("Telebirr: Requesting token from {$url}");
 
             $client = new Client(['verify' => false]);
@@ -64,10 +65,10 @@ class TelebirrClient
                     'Content-Type' => 'application/json',
                     'X-APP-Key' => $this->fabricAppId,
                 ],
-                'timeout' => 5,
+                'timeout' => 30,
                 'json' => [
                     'appSecret' => $this->appSecret,
-                ]
+                ],
             ]);
 
             $statusCode = $response->getStatusCode();
@@ -80,27 +81,31 @@ class TelebirrClient
                 }
             }
 
-            $this->log("Telebirr Token Error: Code={$statusCode}, Body={$body}", 'error');
-            throw new Exception("Failed to get Telebirr token: Status code {$statusCode}");
+            $this->log('Telebirr Token Error: ' . $body, 'error');
+            throw new Exception('Failed to get Telebirr token: ' . $statusCode);
         } catch (Exception $e) {
-            $this->log("Telebirr Token Exception: " . $e->getMessage(), 'error');
+            $this->log('Telebirr Token Exception: ' . $e->getMessage(), 'error');
             throw $e;
         }
     }
 
     /**
      * Create Order
+     * 
+     * @param string $title
+     * @param string|float $amount
+     * @param string|null $merchOrderId
+     * @param array $params Extra preorder parameters (e.g. ['trade_type' => 'InApp', 'payee_identifier' => '...', 'raw_request' => true])
      */
-    public function createOrder(string $title, $amount, ?string $merchOrderId = null): string
+    public function createOrder($title, $amount, $merchOrderId = null, array $params = [])
     {
         $token = $this->getFabricToken();
         $nonce = $this->createNonceStr();
         $timestamp = $this->createTimeStamp();
         $merchantOrderId = $merchOrderId ?? $this->createMerchantOrderId();
         $this->log("Telebirr: Using Merchant Order ID: {$merchantOrderId}");
-        
         $returnUrl = $this->returnUrl;
-        $separator = (parse_url($returnUrl, PHP_URL_QUERY) === null) ? '?' : '&';
+        $separator = (parse_url($returnUrl, PHP_URL_QUERY) == NULL) ? '?' : '&';
         $returnUrl .= $separator . 'track_number=' . $merchantOrderId;
 
         $bizContent = [
@@ -108,18 +113,20 @@ class TelebirrClient
             'appid' => $this->merchantAppId,
             'merch_code' => $this->merchantCode,
             'merch_order_id' => $merchantOrderId,
-            'trade_type' => 'Checkout',
+            'trade_type' => $params['trade_type'] ?? 'Checkout',
             'title' => $title,
             'total_amount' => number_format($amount, 2, '.', ''),
             'trans_currency' => 'ETB',
-            'timeout_express' => '120m',
-            'business_type' => 'BuyGoods',
-            'payee_identifier' => $this->merchantCode,
-            'payee_identifier_type' => '04',
-            'payee_type' => '5000',
-            'callback_info' => 'From web',
+            'timeout_express' => $params['timeout_express'] ?? '120m',
+            'business_type' => $params['business_type'] ?? 'BuyGoods',
+            'callback_info' => $params['callback_info'] ?? 'From web',
             'redirect_url' => $returnUrl
         ];
+
+        // Merge any dynamic params
+        $bizContent = array_merge($bizContent, $params);
+        // Exclude internal SDK flags from bizContent
+        unset($bizContent['raw_request']);
 
         $requestParams = [
             'nonce_str' => $nonce,
@@ -134,8 +141,10 @@ class TelebirrClient
         $requestParams['sign'] = $this->sign($requestParams);
 
         $url = rtrim($this->baseUrl, '/') . '/payment/v1/merchant/preOrder';
+        
         $this->log("Telebirr: Creating order at {$url}");
 
+        // Make the request with unescaped slashes and a slightly longer timeout
         $client = new Client(['verify' => false]);
         $response = $client->post($url, [
             'headers' => [
@@ -143,30 +152,67 @@ class TelebirrClient
                 'X-APP-Key' => $this->fabricAppId,
                 'Authorization' => $token,
             ],
-            'timeout' => 5,
+            'timeout' => 30,
             'body' => json_encode($requestParams, JSON_UNESCAPED_SLASHES),
         ]);
 
         $body = $response->getBody()->getContents();
-        if ($response->getStatusCode() >= 200 && $response->getStatusCode() < 300) {
+        $statusCode = $response->getStatusCode();
+
+        if ($statusCode >= 200 && $statusCode < 300) {
             $result = json_decode($body, true);
+            
             $biz = $result['biz_content'] ?? [];
             $prepayId = $biz['prepay_id'] ?? $biz['prePayId'] ?? null;
             
             if ($prepayId) {
-                return $this->createRawRequest($prepayId, $returnUrl);
+                if (isset($params['raw_request']) && $params['raw_request'] === true) {
+                    return $this->getRawRequestString($prepayId, $params['trade_type'] ?? 'Checkout');
+                }
+                return $this->createRawRequest($prepayId, $returnUrl, $params['trade_type'] ?? 'Checkout');
             }
         }
 
-        $this->log("Telebirr Create Order Error: " . $body, 'error');
-        throw new Exception("Failed to create Telebirr order: " . $body);
+        $this->log('Telebirr Create Order Error: ' . $body, 'error');
+        throw new Exception('Failed to create Telebirr order: ' . $body);
     }
 
     /**
-     * Create Raw Request for App/H5
+     * Get Raw Request query string for App/H5 evaluation
      */
-    protected function createRawRequest(string $prepayId, ?string $returnUrl = null): string
+    public function getRawRequestString($prepayId, $tradeType = 'Checkout', $returnUrl = null)
     {
+        $maps = array(
+            "appid" => $this->merchantAppId,
+            "merch_code" => $this->merchantCode,
+            "nonce_str" => $this->createNonceStr(),
+            "prepay_id" => $prepayId,
+            "timestamp" => $this->createTimeStamp(),
+            "sign_type" => "SHA256WithRSA"
+        );
+        
+        if ($tradeType === 'Checkout') {
+            $maps['version'] = '1.0';
+            $maps['trade_type'] = $tradeType;
+        }
+        
+        if (!empty($returnUrl)) {
+            $maps["returnUrl"] = $returnUrl;
+        }
+        
+        $rawRequest = "";
+        foreach ($maps as $map => $m) {
+            $rawRequest .= $map . '=' . $m . "&";
+        }
+        $sign = $this->signPKCS1($maps);
+        
+        $rawRequest = $rawRequest . 'sign=' . $sign;
+        return $rawRequest;
+    }
+
+    protected function createRawRequest($prepayId, $returnUrl = null, $tradeType = 'Checkout')
+    {
+        // 1. Create the map of parameters to sign (only these 6, matching working TelebirrService)
         $map = [
             'appid' => $this->merchantAppId,
             'merch_code' => $this->merchantCode,
@@ -176,8 +222,10 @@ class TelebirrClient
             'sign_type' => 'SHA256WithRSA'
         ];
 
+        // 2. Sign the map (PSS padding via sign() -> signString() -> withMGFHash)
         $sign = $this->sign($map);
 
+        // 3. Construct the query string exactly as per working TelebirrService
         $rawRequestArray = [
             "appid=" . urlencode($map['appid']),
             "merch_code=" . urlencode($map['merch_code']),
@@ -187,10 +235,12 @@ class TelebirrClient
             "sign_type=" . urlencode($map['sign_type']),
             "sign=" . urlencode($sign),
             "version=1.0",
-            "trade_type=Checkout"
+            "trade_type=" . $tradeType
         ];
         
         $rawRequest = implode("&", $rawRequestArray);
+
+        // 4. Construct the full URL
         $webBaseUrl = rtrim($this->webUrl, '?') . '?';
         $paymentUrl = $webBaseUrl . $rawRequest;
         
@@ -200,16 +250,16 @@ class TelebirrClient
     }
 
     /**
-     * Sign the data using RSA-SHA256
+     * Generate signature matching reference code logic
      */
-    protected function sign(array $request): string
+    protected function signPKCS1($request)
     {
         $excludeFields = ['sign', 'sign_type', 'header', 'refund_info', 'openType', 'raw_request'];
         ksort($request);
         $stringApplet = '';
 
         foreach ($request as $key => $values) {
-            if (in_array($key, $excludeFields, true) || is_null($values)) {
+            if (in_array($key, $excludeFields) || is_null($values)) {
                 continue;
             }
 
@@ -232,11 +282,52 @@ class TelebirrClient
         }
 
         $sortedString = $this->sortedString($stringApplet);
-        $this->log("Telebirr: Signature string: " . $sortedString);
+
+        $rsa = \phpseclib3\Crypt\RSA::load($this->privateKey)
+            ->withHash('sha256')
+            ->withPadding(\phpseclib3\Crypt\RSA::SIGNATURE_PKCS1); 
+        
+        return base64_encode($rsa->sign($sortedString));
+    }
+
+    /**
+     * Generate signature matching reference code logic
+     */
+    protected function sign($request)
+    {
+        $excludeFields = ['sign', 'sign_type', 'header', 'refund_info', 'openType', 'raw_request'];
+        ksort($request);
+        $stringApplet = '';
+
+        foreach ($request as $key => $values) {
+            if (in_array($key, $excludeFields) || is_null($values)) {
+                continue;
+            }
+
+            if ($key === 'biz_content') {
+                ksort($values);
+                foreach ($values as $value => $singleValue) {
+                    if ($stringApplet === '') {
+                        $stringApplet = $value . '=' . $singleValue;
+                    } else {
+                        $stringApplet .= '&' . $value . '=' . $singleValue;
+                    }
+                }
+            } else {
+                if ($stringApplet === '') {
+                    $stringApplet = $key . '=' . $values;
+                } else {
+                    $stringApplet .= '&' . $key . '=' . $values;
+                }
+            }
+        }
+
+        $sortedString = $this->sortedString($stringApplet);
+        $this->log('Telebirr: Signature string: ' . $sortedString);
         return $this->signString($sortedString);
     }
 
-    protected function sortedString(string $stringApplet): string
+    protected function sortedString($stringApplet)
     {
         $sortedArray = explode('&', $stringApplet);
         sort($sortedArray);
@@ -246,7 +337,7 @@ class TelebirrClient
     /**
      * Verify payment status using Telebirr queryOrder API
      */
-    public function verifyPayment($merchantOrderId): array
+    public function verifyPayment($merchantOrderId)
     {
         try {
             $token = $this->getFabricToken();
@@ -272,6 +363,7 @@ class TelebirrClient
             $url = rtrim($this->baseUrl, '/') . '/payment/v1/merchant/queryOrder';
             $this->log("Telebirr Query Request Params: " . json_encode($requestParams));
 
+            // Make the request with unescaped slashes and a slightly longer timeout
             $client = new Client(['verify' => false]);
             $response = $client->post($url, [
                 'headers' => [
@@ -279,18 +371,19 @@ class TelebirrClient
                     'X-APP-Key' => $this->fabricAppId,
                     'Authorization' => $token,
                 ],
-                'timeout' => 5,
+                'timeout' => 30,
                 'body' => json_encode($requestParams, JSON_UNESCAPED_SLASHES),
             ]);
 
             $statusCode = $response->getStatusCode();
             $body = $response->getBody()->getContents();
 
-            $this->log("Telebirr Query HTTP Status: {$statusCode}");
-            $this->log("Telebirr Query Raw Response: {$body}");
+            $this->log("Telebirr Query HTTP Status: " . $statusCode);
+            $this->log("Telebirr Query Raw Response: " . $body);
 
             if ($statusCode >= 200 && $statusCode < 300) {
                 $result = json_decode($body, true);
+                
                 if (isset($result['biz_content'])) {
                     $biz = $result['biz_content'];
                     $orderStatus = $biz['trade_status'] ?? $biz['order_status'] ?? $biz['result'] ?? 'unknown';
@@ -305,10 +398,11 @@ class TelebirrClient
 
             return [
                 'success' => false,
-                'message' => 'Telebirr query failed: Status ' . $statusCode
+                'message' => 'Telebirr query failed: ' . $statusCode
             ];
+
         } catch (Exception $e) {
-            $this->log("Telebirr Query Order Exception: " . $e->getMessage(), 'error');
+            $this->log('Telebirr Query Order Exception: ' . $e->getMessage(), 'error');
             return [
                 'success' => false,
                 'message' => $e->getMessage()
@@ -316,17 +410,19 @@ class TelebirrClient
         }
     }
 
-    public function initiatePayment($orderId, $amount, $subject, array $customerInfo = []): array
+    public function initiatePayment($orderId, $amount, $subject, $customerInfo = [])
     {
         try {
+            // Use subject as the title
             $paymentUrl = $this->createOrder($subject, $amount, $orderId);
+            
             return [
                 'success' => true,
                 'payment_url' => $paymentUrl,
-                'reference' => $orderId
+                'reference' => $orderId // Return the order ID as reference
             ];
         } catch (Exception $e) {
-            $this->log("Telebirr Initiate Payment Error: " . $e->getMessage(), 'error');
+            $this->log('Telebirr Initiate Payment Error: ' . $e->getMessage(), 'error');
             return [
                 'success' => false, 
                 'message' => $e->getMessage()
@@ -334,7 +430,7 @@ class TelebirrClient
         }
     }
 
-    protected function formatQueryString(array $params): string
+    protected function formatQueryString($params)
     {
         ksort($params);
         $query = [];
@@ -344,42 +440,30 @@ class TelebirrClient
         return implode('&', $query);
     }
 
-    protected function normalizePrivateKey(string $key): string
+    protected function signString($data)
     {
-        $cleanKey = str_replace([
-            '-----BEGIN PRIVATE KEY-----',
-            '-----END PRIVATE KEY-----',
-            '-----BEGIN RSA PRIVATE KEY-----',
-            '-----END RSA PRIVATE KEY-----',
-            "\r", "\n", ' ', "\t"
-        ], '', $key);
-
-        $chunked = chunk_split($cleanKey, 64, "\n");
-
-        return "-----BEGIN PRIVATE KEY-----\n" . rtrim($chunked) . "\n-----END PRIVATE KEY-----";
-    }
-
-    protected function signString(string $data): string
-    {
-        $key = $this->normalizePrivateKey($this->privateKey);
-        $rsa = \phpseclib3\Crypt\RSA::load($key)
+        // Reference code uses setMGFHash, which in phpseclib triggers PSS padding.
+        // We use phpseclib3's equivalent setup.
+        $rsa = \phpseclib3\Crypt\RSA::load($this->privateKey)
             ->withHash('sha256')
             ->withMGFHash('sha256'); 
         
-        return base64_encode($rsa->sign($data));
+        $signature = $rsa->sign($data);
+        
+        return base64_encode($signature);
     }
 
-    protected function createNonceStr(int $length = 32): string
+    protected function createNonceStr($length = 32)
     {
-        return substr(str_shuffle(str_repeat('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ', ceil($length / 36))), 1, $length);
+        return substr(str_shuffle(str_repeat($x='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ', ceil($length/strlen($x)) )),1,$length);
     }
 
-    protected function createTimeStamp(): string
+    protected function createTimeStamp()
     {
         return (string)time();
     }
 
-    protected function createMerchantOrderId(): string
+    protected function createMerchantOrderId()
     {
         return (string)floor(microtime(true) * 1000);
     }

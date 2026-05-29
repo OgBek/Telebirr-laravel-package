@@ -1,10 +1,37 @@
-# Telebirr PHP & Laravel Package (`bekambeyene/telebirr`)
+# Telebirr PHP & Laravel SDK (`bekambeyene/telebirr`)
 
-A framework-agnostic PHP package for integrating Telebirr payment gateway, with full first-class support for Laravel 11, 12, and 13.
+[![Latest Stable Version](https://img.shields.io/packagist/v/bekambeyene/telebirr.svg)](https://packagist.org/packages/bekambeyene/telebirr)
+[![Total Downloads](https://img.shields.io/packagist/dt/bekambeyene/telebirr.svg)](https://packagist.org/packages/bekambeyene/telebirr)
+[![License](https://img.shields.io/packagist/l/bekambeyene/telebirr.svg)](https://packagist.org/packages/bekambeyene/telebirr)
+[![PHP Version Compatibility](https://img.shields.io/packagist/php-v/bekambeyene/telebirr.svg)](https://packagist.org/packages/bekambeyene/telebirr)
 
-## Installation
+A fully-featured, framework-agnostic PHP SDK for integrating Ethio Telecom's **Telebirr SuperApp Payment Gateway**. Includes first-class integrations, facades, and configuration builders for **Laravel 11, 12, and 13**, as well as clean vanilla PHP environments.
 
-Install the package via Composer:
+---
+
+## ⚡ Key Features
+
+- **Secure & Standardized Padding:** Automatically handles RSA signature generation using **SHA256 with RSA-PSS padding** (with SHA256 MGF1 hash configuration) as required by Telebirr.
+- **Double Signature Handling:** Handles both the main request pre-order signing and the Web Gateway redirect query parameter signing (`PKCS#1` format for H5).
+- **Flexible Flow Support:**
+  - **H5 / Web Checkout Flow:** Generate payment URLs seamlessly to redirect web clients.
+  - **In-App Payment Flow:** Obtain raw request strings directly for integration inside mobile apps or WebViews.
+- **Robust Client Query:** Verify order/trade status with Telebirr API directly.
+- **Zero-Dependency Laravel Bridge:** Includes a built-in Service Provider and Facade that auto-discovers on installation.
+
+---
+
+## 📦 Compatibility & Requirements
+
+- **PHP:** `^8.2` (Fully supports PHP 8.2, 8.3, and 8.4)
+- **Laravel Framework:** `^11.0 || ^12.0 || ^13.0`
+- **Extensions Needed:** `openssl`, `curl`, `json`
+
+---
+
+## 🚀 Installation
+
+Install the package into your project using Composer:
 
 ```bash
 composer require bekambeyene/telebirr
@@ -12,23 +39,23 @@ composer require bekambeyene/telebirr
 
 ---
 
-## Laravel Integration (Laravel 11, 12, 13)
+## 🛠️ Laravel Integration (Laravel 11, 12, 13)
 
-This package supports Laravel's package auto-discovery, so it registers the Service Provider and Facade automatically.
+Thanks to Laravel's Package Auto-Discovery, the Service Provider and `Telebirr` Facade are registered automatically.
 
 ### 1. Publish Configuration
 
-Publish the configuration file:
+Publish the configuration file using Artisan:
 
 ```bash
 php artisan vendor:publish --tag="telebirr-config"
 ```
 
-This will create a `config/telebirr.php` file in your application.
+This creates a default config file at `config/telebirr.php`.
 
-### 2. Environment Variables
+### 2. Environment Configuration
 
-Add the following variables to your `.env` file:
+Add the following credentials provided by Ethio Telecom to your `.env` file:
 
 ```env
 TELEBIRR_BASE_URL=https://developerportal.ethiotelebirr.et:38443/apiaccess/payment/gateway
@@ -40,16 +67,14 @@ TELEBIRR_MERCHANT_CODE=your_merchant_code
 TELEBIRR_NOTIFY_URL=https://yourdomain.com/payment/notify
 TELEBIRR_RETURN_URL=https://yourdomain.com/payment/success
 TELEBIRR_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----
-...
+YOUR_TELEBIRR_PUBLIC_KEY_HERE
 -----END PUBLIC KEY-----"
 TELEBIRR_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----
-...
+YOUR_MERCHANT_PRIVATE_KEY_HERE
 -----END PRIVATE KEY-----"
 ```
 
-### 3. Usage Example (Controller)
-
-Here is how you can use the Telebirr facade in your controllers:
+### 3. Usage inside Laravel Controllers
 
 ```php
 <?php
@@ -61,69 +86,82 @@ use Bekambeyene\Telebirr\Laravel\Facades\Telebirr;
 use Illuminate\Support\Facades\Log;
 use Exception;
 
-class PaymentController extends Controller
+class TelebirrPaymentController extends Controller
 {
     /**
-     * Redirect user to Telebirr payment page
+     * Start payment checkout flow
      */
-    public function checkout(Request $request)
+    public function initiateCheckout(Request $request)
     {
         $request->validate([
-            'amount' => 'required|numeric',
-            'title' => 'required|string',
+            'amount' => 'required|numeric|min:1',
+            'title' => 'required|string|max:100',
         ]);
 
         try {
-            // Generates the H5/Web payment URL
+            // 1. Generate the payment redirect URL for H5 Checkout
             $paymentUrl = Telebirr::createOrder(
                 $request->input('title'),
                 $request->input('amount')
             );
 
+            // 2. Redirect the customer to Telebirr Gateway
             return redirect()->away($paymentUrl);
         } catch (Exception $e) {
-            Log::error('Telebirr Checkout Error: ' . $e->getMessage());
-            return back()->with('error', 'Payment initialization failed: ' . $e->getMessage());
+            Log::error('Telebirr Payment Error: ' . $e->getMessage());
+            return back()->with('error', 'Unable to initiate payment. Please try again.');
         }
     }
 
     /**
-     * Handle webhook notifications from Telebirr
+     * Handle payment notification callback (Webhook) from Telebirr
      */
     public function handleNotification(Request $request)
     {
-        Log::info('Telebirr Notification payload: ', $request->all());
+        Log::info('Telebirr Webhook Payload Received: ', $request->all());
 
-        // Process notification, verify order details
-        return response('success');
+        // Validate the request payload details
+        $tradeStatus = $request->input('trade_status');
+        $merchantOrderId = $request->input('merch_order_id');
+
+        if ($tradeStatus === 'PAY_SUCCESS') {
+            // Update order status in your database
+            // e.g. Order::where('order_id', $merchantOrderId)->update(['status' => 'paid']);
+        }
+
+        return response('success'); // Telebirr expects 'success' response
     }
 
     /**
-     * Manually verify the payment status
+     * Verify payment status manually (e.g. on return/success page redirect)
      */
-    public function verify(string $merchantOrderId)
+    public function verifyStatus(Request $request)
     {
+        $merchantOrderId = $request->query('track_number');
+
+        if (!$merchantOrderId) {
+            return redirect('/')->with('error', 'Missing order reference.');
+        }
+
         $result = Telebirr::verifyPayment($merchantOrderId);
 
         if ($result['success']) {
-            $status = $result['status']; // e.g. "success", "fail", etc.
-            return view('payment.status', ['status' => $status, 'details' => $result['raw_response']]);
+            $status = $result['status']; // e.g. "pay_success", "fail", etc.
+            return view('payment.success', ['status' => $status, 'details' => $result['raw_response']]);
         }
 
-        return redirect()->route('home')->with('error', 'Verification failed: ' . $result['message']);
+        return redirect('/')->with('error', 'Verification failed: ' . $result['message']);
     }
 }
 ```
 
 ---
 
-## Vanilla PHP Usage (No Laravel)
+## 🐘 Vanilla PHP Integration (Framework-Agnostic)
 
-If you are using this package in a raw PHP project (without Laravel):
+You can use the SDK in native PHP applications easily.
 
-### 1. Instantiate the Client
-
-Pass your config array directly to the constructor of `TelebirrClient`:
+### 1. Initialize the Client
 
 ```php
 <?php
@@ -141,47 +179,86 @@ $config = [
     'merchant_code' => 'your_merchant_code',
     'notify_url' => 'https://yourdomain.com/payment/notify',
     'return_url' => 'https://yourdomain.com/payment/success',
-    'public_key' => '-----BEGIN PUBLIC KEY-----...',
-    'private_key' => '-----BEGIN PRIVATE KEY-----...'
+    'private_key' => '-----BEGIN PRIVATE KEY-----
+YOUR_PRIVATE_KEY
+-----END PRIVATE KEY-----'
 ];
 
-// Optional: Provide a logging callback function
+// Optional: Provide custom logging callback
 $logger = function (string $message, string $level = 'info', array $context = []) {
-    error_log("[Telebirr SDK][$level] $message - " . json_encode($context));
+    error_log("[Telebirr SDK][$level] $message " . json_encode($context));
 };
 
 $telebirr = new TelebirrClient($config, $logger);
 ```
 
-### 2. Initiate Payment / Create Order
+### 2. Standard H5 / Web Checkout Flow
 
 ```php
 try {
-    $paymentUrl = $telebirr->createOrder('Order Title', 150.50);
+    $paymentUrl = $telebirr->createOrder('Standard Plan Subscription', 250.00);
     
-    // Redirect to Telebirr payment URL
+    // Redirect customer
     header('Location: ' . $paymentUrl);
     exit;
 } catch (Exception $e) {
-    echo "Error initializing payment: " . $e->getMessage();
+    echo "Payment failed to initialize: " . $e->getMessage();
 }
 ```
 
-### 3. Verify Payment Status
+### 3. Mobile App InApp / WebView Flow
+
+If you are requesting the payload for a Mobile App SDK (InApp) and want the raw query string instead of the Web Checkout redirect URL:
 
 ```php
-$merchantOrderId = '1716912345678';
-$response = $telebirr->verifyPayment($merchantOrderId);
-
-if ($response['success']) {
-    echo "Payment Status: " . $response['status'];
-} else {
-    echo "Payment Verification failed: " . $response['message'];
+try {
+    // Generate raw request string for Mobile Client SDK evaluation
+    $rawRequestString = $telebirr->createOrder('InApp Purchase', 120.00, null, [
+        'trade_type' => 'InApp',
+        'raw_request' => true
+    ]);
+    
+    header('Content-Type: application/json');
+    echo json_encode(['raw_request_string' => $rawRequestString]);
+} catch (Exception $e) {
+    echo json_encode(['error' => $e->getMessage()]);
 }
 ```
 
-## Security & Signatures
-Signatures are generated using RSA-SHA256 with PSS padding (SHA256 Hash and SHA256 MGF Hash) automatically using standard security libraries (`phpseclib`).
+### 4. Direct Status Verification
 
-## License
-MIT
+```php
+$merchantOrderId = '1780080424282';
+$result = $telebirr->verifyPayment($merchantOrderId);
+
+if ($result['success']) {
+    echo "Status: " . $result['status']; // e.g. "pay_success"
+    print_r($result['raw_response']);
+} else {
+    echo "Verification failure: " . $result['message'];
+}
+```
+
+---
+
+## 🔒 Security, Signing and Padding Details
+
+The Telebirr Gateway uses a dual signing structure:
+1. **Pre-order API Request Signature:** Signed with **RSA-PSS Padding** with SHA256 hash & SHA256 Mask Generation Function (`withMGFHash('sha256')`).
+2. **Web Paygate Redirect URL Signature:** Uses **RSA-PKCS1 Padding** on the web payload variables (`appid`, `merch_code`, `nonce_str`, `prepay_id`, `timestamp`, `sign_type`), while leaving parameters like `version` and `trade_type` appended to the URL unsigned.
+
+This SDK abstracts all of these complexities automatically via `phpseclib3`.
+
+---
+
+## 📞 Support & Contacts
+
+- 📧 **General Info / Security Vulnerabilities:** [bbekam60@gmail.com](mailto:bbekam60@gmail.com)
+- 💬 **Developer Support (Telegram):** [@eth_dev_support](https://t.me/eth_dev_support)
+
+---
+
+## 📄 License
+
+This SDK is open-sourced software licensed under the [MIT License](LICENSE).
+
