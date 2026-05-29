@@ -4,7 +4,12 @@
 [![Total Downloads](https://img.shields.io/packagist/dt/bekambeyene/telebirr.svg)](https://packagist.org/packages/bekambeyene/telebirr)
 [![License](https://img.shields.io/packagist/l/bekambeyene/telebirr-laravel-package.svg)](https://packagist.org/packages/bekambeyene/telebirr-laravel-package)
 [![PHP Version Compatibility](https://img.shields.io/packagist/php-v/bekambeyene/telebirr.svg)](https://packagist.org/packages/bekambeyene/telebirr)
+# Telebirr PHP & Laravel SDK (`bekambeyene/telebirr`)
 
+[![Latest Stable Version](https://img.shields.io/packagist/v/bekambeyene/telebirr.svg)](https://packagist.org/packages/bekambeyene/telebirr)
+[![Total Downloads](https://img.shields.io/packagist/dt/bekambeyene/telebirr.svg)](https://packagist.org/packages/bekambeyene/telebirr)
+[![License](https://img.shields.io/packagist/l/bekambeyene/telebirr.svg)](https://packagist.org/packages/bekambeyene/telebirr)
+[![PHP Version Compatibility](https://img.shields.io/packagist/php-v/bekambeyene/telebirr.svg)](https://packagist.org/packages/bekambeyene/telebirr)
 A fully-featured, framework-agnostic PHP SDK for integrating Ethio Telecom's **Telebirr SuperApp Payment Gateway**. Includes first-class integrations, facades, and configuration builders for **Laravel 11, 12, and 13**, as well as clean vanilla PHP environments.
 
 ---
