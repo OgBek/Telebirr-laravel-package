@@ -251,6 +251,17 @@ The Telebirr Gateway uses a dual signing structure:
 This SDK abstracts all of these complexities automatically via `phpseclib3`.
 
 ---
+## Default endpoints used by the library:
+
+- Test API: https://developerportal.ethiotelebirr.et:38443/apiaccess/payment/gateway
+- Production API: https://superapp.ethiomobilemoney.et:38443/apiaccess/payment/gateway
+- Test Web Checkout Redirect: https://developerportal.ethiotelebirr.et:38443/payment/web/paygate?
+- Production Web Checkout Redirect: https://superapp.ethiomobilemoney.et:38443/payment/web/paygate?
+  
+## 🔗 Links
+
+- [Telebirr Developer Portal](https://developer.ethiotelecom.et/)
+- [Telebirr H5 C2B Integration Guide](https://developer.ethiotelecom.et/docs/H5%20C2B%20Web%20Payment%20Integration%20Quick%20Guide/requestCreateOrder)
 
 ## 📞 Support & Contacts
 
