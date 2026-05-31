@@ -51,4 +51,15 @@ interface TelebirrClientInterface
      * @return bool
      */
     public function verifyCallbackSignature(array $payload, string $signature): bool;
+
+    /**
+     * Request a refund for an existing order.
+     *
+     * @param string $outTradeNo The original merchant order ID
+     * @param float $refundAmount The amount to refund
+     * @param string $outRequestNo A unique ID for this refund request
+     * @param array $params Additional parameters (e.g. refund_reason)
+     * @return array
+     */
+    public function refundOrder(string $outTradeNo, float $refundAmount, string $outRequestNo, array $params = []): array;
 }

@@ -67,6 +67,14 @@ class TelebirrClient implements TelebirrClientInterface
             throw new TelebirrException("Order amount must be greater than zero.");
         }
 
+        if (empty(trim($title))) {
+            throw new TelebirrException("Order title cannot be empty.");
+        }
+
+        if ($merchOrderId !== null && empty(trim($merchOrderId))) {
+            throw new TelebirrException("Merchant order ID cannot be empty if provided.");
+        }
+
         $token = $this->getFabricToken();
         $nonce = $this->createNonceStr();
         $timestamp = $this->createTimeStamp();
@@ -281,6 +289,81 @@ class TelebirrClient implements TelebirrClientInterface
         }
 
         return $this->signatureService->verifyPSS($payload, $signature, $this->publicKey);
+    }
+
+    public function refundOrder(string $outTradeNo, float $refundAmount, string $outRequestNo, array $params = []): array
+    {
+        if ($refundAmount <= 0) {
+            throw new TelebirrException("Refund amount must be greater than zero.");
+        }
+
+        if (empty(trim($outTradeNo))) {
+            throw new TelebirrException("Original merchant order ID cannot be empty.");
+        }
+
+        if (empty(trim($outRequestNo))) {
+            throw new TelebirrException("Refund request ID cannot be empty.");
+        }
+
+        try {
+            $token = $this->getFabricToken();
+            $nonce = $this->createNonceStr();
+            $timestamp = $this->createTimeStamp();
+
+            $bizContent = [
+                'appid' => $this->merchantAppId,
+                'merch_code' => $this->merchantCode,
+                'merch_order_id' => $outTradeNo,
+                'refund_amount' => number_format($refundAmount, 2, '.', ''),
+                'out_request_no' => $outRequestNo,
+                'refund_reason' => $params['refund_reason'] ?? 'Requested by customer'
+            ];
+
+            $requestParams = [
+                'nonce_str' => $nonce,
+                'method' => 'payment.refund',
+                'timestamp' => $timestamp,
+                'version' => '1.0',
+                'biz_content' => $bizContent,
+                'sign_type' => 'SHA256WithRSA',
+            ];
+
+            $requestParams['sign'] = $this->signatureService->signPSS($requestParams, $this->privateKey);
+
+            $this->log("Telebirr: Processing refund for {$outTradeNo}");
+
+            $response = $this->httpClient->post(
+                '/payment/v1/merchant/refund',
+                json_encode($requestParams, JSON_UNESCAPED_SLASHES),
+                [
+                    'Authorization' => $token,
+                    'X-APP-Key' => $this->fabricAppId,
+                ]
+            );
+
+            if (isset($response['biz_content'])) {
+                $biz = $response['biz_content'];
+                $status = $biz['trade_status'] ?? $biz['result'] ?? 'unknown';
+
+                return [
+                    'success' => in_array($status, ['SUCCESS', 'REFUND_SUCCESS']),
+                    'status' => strtolower($status),
+                    'raw_response' => $response
+                ];
+            }
+
+            return [
+                'success' => false,
+                'message' => 'Telebirr refund failed, biz_content missing.'
+            ];
+
+        } catch (\Throwable $e) {
+            $this->log('Telebirr Refund Order Exception: ' . $e->getMessage(), 'error');
+            return [
+                'success' => false,
+                'message' => $e->getMessage()
+            ];
+        }
     }
 
     protected function createNonceStr(int $length = 32): string
