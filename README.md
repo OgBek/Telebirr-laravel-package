@@ -1,9 +1,9 @@
 # Telebirr PHP & Laravel SDK (`bekambeyene/telebirr`)
 
-[![Latest Stable Version](https://img.shields.io/packagist/v/bekambeyene/telebirr.svg?maxAge=0)](https://packagist.org/packages/bekambeyene/telebirr)
-[![Total Downloads](https://img.shields.io/packagist/dt/bekambeyene/telebirr.svg?maxAge=0)](https://packagist.org/packages/bekambeyene/telebirr)
-[![License](https://img.shields.io/packagist/l/bekambeyene/telebirr.svg?maxAge=0)](https://packagist.org/packages/bekambeyene/telebirr)
-[![PHP Version Compatibility](https://img.shields.io/packagist/php-v/bekambeyene/telebirr.svg?maxAge=0)](https://packagist.org/packages/bekambeyene/telebirr)
+[![Latest Stable Version](https://img.shields.io/packagist/v/bekambeyene/telebirr.svg?maxAge=0&v=3)](https://packagist.org/packages/bekambeyene/telebirr)
+[![Total Downloads](https://img.shields.io/github/downloads/bekambeyene/telebirr/total?maxAge=0&v=3&label=downloads)](https://packagist.org/packages/bekambeyene/telebirr)
+[![License](https://img.shields.io/badge/license-MIT-green.svg?maxAge=0&v=3)](https://packagist.org/packages/bekambeyene/telebirr)
+[![PHP Version Compatibility](https://img.shields.io/packagist/php-v/bekambeyene/telebirr.svg?maxAge=0&v=3)](https://packagist.org/packages/bekambeyene/telebirr)
 <img width="1280" height="320" alt="telebanner" src="https://github.com/user-attachments/assets/187d06f5-9aaf-4edb-91aa-c31b1ebca7e6" />
 
 A fully-featured, secure, and modern PHP SDK for integrating Ethio Telecom's **Telebirr SuperApp Payment Gateway**. 
