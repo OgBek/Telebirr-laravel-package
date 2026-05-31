@@ -1,9 +1,10 @@
 # Telebirr PHP & Laravel SDK (`bekambeyene/telebirr`)
 
-[![Latest Stable Version](https://img.shields.io/packagist/v/bekambeyene/telebirr.svg)](https://packagist.org/packages/bekambeyene/telebirr)
-[![Total Downloads](https://img.shields.io/packagist/dt/bekambeyene/telebirr.svg)](https://packagist.org/packages/bekambeyene/telebirr)
-[![License](https://img.shields.io/packagist/l/bekambeyene/telebirr.svg)](https://packagist.org/packages/bekambeyene/telebirr)
-[![PHP Version Compatibility](https://img.shields.io/packagist/php-v/bekambeyene/telebirr.svg)](https://packagist.org/packages/bekambeyene/telebirr)
+[![Latest Stable Version](https://img.shields.io/packagist/v/bekambeyene/telebirr.svg?maxAge=0)](https://packagist.org/packages/bekambeyene/telebirr)
+[![Total Downloads](https://img.shields.io/packagist/dt/bekambeyene/telebirr.svg?maxAge=0)](https://packagist.org/packages/bekambeyene/telebirr)
+[![License](https://img.shields.io/packagist/l/bekambeyene/telebirr.svg?maxAge=0)](https://packagist.org/packages/bekambeyene/telebirr)
+[![PHP Version Compatibility](https://img.shields.io/packagist/php-v/bekambeyene/telebirr.svg?maxAge=0)](https://packagist.org/packages/bekambeyene/telebirr)
+<img width="1280" height="320" alt="telebanner" src="https://github.com/user-attachments/assets/187d06f5-9aaf-4edb-91aa-c31b1ebca7e6" />
 
 A fully-featured, secure, and modern PHP SDK for integrating Ethio Telecom's **Telebirr SuperApp Payment Gateway**. 
 
@@ -302,6 +303,17 @@ The Telebirr Gateway utilizes a complex dual signing architecture. Our `Signatur
 This SDK dynamically abstracts all these complexities via `phpseclib3`.
 
 ---
+## Default endpoints used by the library:
+
+- Test API: https://developerportal.ethiotelebirr.et:38443/apiaccess/payment/gateway
+- Production API: https://superapp.ethiomobilemoney.et:38443/apiaccess/payment/gateway
+- Test Web Checkout Redirect: https://developerportal.ethiotelebirr.et:38443/payment/web/paygate?
+- Production Web Checkout Redirect: https://superapp.ethiomobilemoney.et:38443/payment/web/paygate?
+  
+## 🔗 Links
+
+- [Telebirr Developer Portal](https://developer.ethiotelecom.et/)
+- [Telebirr H5 C2B Integration Guide](https://developer.ethiotelecom.et/docs/H5%20C2B%20Web%20Payment%20Integration%20Quick%20Guide/requestCreateOrder)
 
 ## 📞 Support & Contacts
 
