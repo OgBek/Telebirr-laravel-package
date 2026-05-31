@@ -5,18 +5,23 @@
 [![License](https://img.shields.io/packagist/l/bekambeyene/telebirr.svg)](https://packagist.org/packages/bekambeyene/telebirr)
 [![PHP Version Compatibility](https://img.shields.io/packagist/php-v/bekambeyene/telebirr.svg)](https://packagist.org/packages/bekambeyene/telebirr)
 
-A fully-featured, framework-agnostic PHP SDK for integrating Ethio Telecom's **Telebirr SuperApp Payment Gateway**. Includes first-class integrations, facades, and configuration builders for **Laravel 11, 12, and 13**, as well as clean vanilla PHP environments.
+A fully-featured, secure, and modern PHP SDK for integrating Ethio Telecom's **Telebirr SuperApp Payment Gateway**. 
+
+This package has been thoroughly redesigned to prioritize security, providing first-class integrations, facades, and configuration builders for **Laravel 10, 11, 12, and 13**, alongside robust support for Vanilla PHP environments.
 
 ---
 
 ## ⚡ Key Features
 
-- **Secure & Standardized Padding:** Automatically handles RSA signature generation using **SHA256 with RSA-PSS padding** (with SHA256 MGF1 hash configuration) as required by Telebirr.
-- **Double Signature Handling:** Handles both the main request pre-order signing and the Web Gateway redirect query parameter signing (`PKCS#1` format for H5).
+- **Decentralized Architecture:** Built with single-responsibility services (`SignatureService`, `TokenManager`, `TelebirrHttpClient`) for clean integration and easy testing.
+- **Strict Security & SSL Enforcement:** Ensures enterprise-grade security by enforcing transport-layer SSL verification.
+- **Advanced Cryptography:** 
+  - **Request Signing:** Handles RSA signature generation using **SHA256 with RSA-PSS padding** (with SHA256 MGF1 hash configuration) as strictly required by Telebirr.
+  - **Webhook Verification:** Cryptographically validates incoming Telebirr webhooks to prevent spoofing and Man-in-the-Middle (MitM) attacks.
+  - **H5 Redirect URL:** Generates secure `PKCS#1` signatures for the web gateway payload.
 - **Flexible Flow Support:**
   - **H5 / Web Checkout Flow:** Generate payment URLs seamlessly to redirect web clients.
   - **In-App Payment Flow:** Obtain raw request strings directly for integration inside mobile apps or WebViews.
-- **Robust Client Query:** Verify order/trade status with Telebirr API directly.
 - **Zero-Dependency Laravel Bridge:** Includes a built-in Service Provider and Facade that auto-discovers on installation.
 
 ---
@@ -24,7 +29,7 @@ A fully-featured, framework-agnostic PHP SDK for integrating Ethio Telecom's **T
 ## 📦 Compatibility & Requirements
 
 - **PHP:** `^8.2` (Fully supports PHP 8.2, 8.3, and 8.4)
-- **Laravel Framework:** `^11.0 || ^12.0 || ^13.0`
+- **Laravel Framework:** `^10.0 || ^11.0 || ^12.0 || ^13.0`
 - **Extensions Needed:** `openssl`, `curl`, `json`
 
 ---
@@ -39,7 +44,21 @@ composer require bekambeyene/telebirr
 
 ---
 
-## 🛠️ Laravel Integration (Laravel 11, 12, 13)
+## 🔑 Generating RSA Keys
+
+Telebirr requires asymmetric RSA keys to securely sign requests and verify payloads. If you don't have your keys yet, follow these steps to generate them using Ethio Telecom's official tools:
+
+1. **Download the Sign Tool:** 
+   Download the official Telebirr Key Generation tool here: 
+   [https://developer.ethiotelecom.et/developer_tools/static/download/SignTool.zip](https://developer.ethiotelecom.et/developer_tools/static/download/SignTool.zip)
+2. **Generate the Key Pair:**
+   Extract the `.zip` file, open the tool, and generate your RSA key pair.
+3. **Save your Keys:** 
+   You will receive a **Public Key** and a **Private Key**. You must provide your Public Key to Telebirr via the Developer Portal, and keep the Private Key secure within your application environment.
+
+---
+
+## 🛠️ Laravel Integration
 
 Thanks to Laravel's Package Auto-Discovery, the Service Provider and `Telebirr` Facade are registered automatically.
 
@@ -82,9 +101,9 @@ YOUR_MERCHANT_PRIVATE_KEY_HERE
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Bekambeyene\Telebirr\Laravel\Facades\Telebirr;
+use Bekambeyene\Telebirr\Facades\Telebirr;
+use Bekambeyene\Telebirr\Exceptions\TelebirrException;
 use Illuminate\Support\Facades\Log;
-use Exception;
 
 class TelebirrPaymentController extends Controller
 {
@@ -107,7 +126,7 @@ class TelebirrPaymentController extends Controller
 
             // 2. Redirect the customer to Telebirr Gateway
             return redirect()->away($paymentUrl);
-        } catch (Exception $e) {
+        } catch (TelebirrException $e) {
             Log::error('Telebirr Payment Error: ' . $e->getMessage());
             return back()->with('error', 'Unable to initiate payment. Please try again.');
         }
@@ -120,16 +139,32 @@ class TelebirrPaymentController extends Controller
     {
         Log::info('Telebirr Webhook Payload Received: ', $request->all());
 
-        // Validate the request payload details
-        $tradeStatus = $request->input('trade_status');
-        $merchantOrderId = $request->input('merch_order_id');
+        try {
+            $payload = $request->except('sign');
+            $signature = $request->input('sign');
 
-        if ($tradeStatus === 'PAY_SUCCESS') {
-            // Update order status in your database
-            // e.g. Order::where('order_id', $merchantOrderId)->update(['status' => 'paid']);
+            // Securely verify the RSA-PSS webhook signature
+            $isValid = Telebirr::verifyCallbackSignature($payload, $signature);
+
+            if (!$isValid) {
+                Log::warning('Telebirr Webhook Signature Verification Failed!');
+                return response('invalid signature', 403);
+            }
+
+            $tradeStatus = $request->input('trade_status');
+            $merchantOrderId = $request->input('merch_order_id');
+
+            if ($tradeStatus === 'PAY_SUCCESS') {
+                // Update order status in your database securely
+                // e.g. Order::where('order_id', $merchantOrderId)->update(['status' => 'paid']);
+            }
+
+            return response('success'); // Telebirr expects 'success' response
+
+        } catch (\Exception $e) {
+            Log::error('Telebirr Webhook Parsing Error: ' . $e->getMessage());
+            return response('error', 500);
         }
-
-        return response('success'); // Telebirr expects 'success' response
     }
 
     /**
@@ -159,7 +194,7 @@ class TelebirrPaymentController extends Controller
 
 ## 🐘 Vanilla PHP Integration (Framework-Agnostic)
 
-You can use the SDK in native PHP applications easily.
+You can easily use the SDK in native PHP applications. Because the new architecture relies on specialized services, you simply instantiate and inject the dependencies into the main `TelebirrClient`.
 
 ### 1. Initialize the Client
 
@@ -169,6 +204,9 @@ You can use the SDK in native PHP applications easily.
 require 'vendor/autoload.php';
 
 use Bekambeyene\Telebirr\TelebirrClient;
+use Bekambeyene\Telebirr\Services\TokenManager;
+use Bekambeyene\Telebirr\Services\SignatureService;
+use Bekambeyene\Telebirr\Services\TelebirrHttpClient;
 
 $config = [
     'base_url' => 'https://developerportal.ethiotelebirr.et:38443/apiaccess/payment/gateway',
@@ -179,6 +217,9 @@ $config = [
     'merchant_code' => 'your_merchant_code',
     'notify_url' => 'https://yourdomain.com/payment/notify',
     'return_url' => 'https://yourdomain.com/payment/success',
+    'public_key' => '-----BEGIN PUBLIC KEY-----
+YOUR_TELEBIRR_PUBLIC_KEY
+-----END PUBLIC KEY-----',
     'private_key' => '-----BEGIN PRIVATE KEY-----
 YOUR_PRIVATE_KEY
 -----END PRIVATE KEY-----'
@@ -189,7 +230,17 @@ $logger = function (string $message, string $level = 'info', array $context = []
     error_log("[Telebirr SDK][$level] $message " . json_encode($context));
 };
 
-$telebirr = new TelebirrClient($config, $logger);
+// 1. Initialize the HTTP Client (Base URL, Verify SSL = true)
+$httpClient = new TelebirrHttpClient($config['base_url'], true);
+
+// 2. Initialize the Token Manager
+$tokenManager = new TokenManager($httpClient, $config['fabric_app_id'], $config['app_secret']);
+
+// 3. Initialize the Signature Service
+$signatureService = new SignatureService();
+
+// 4. Boot the Telebirr Orchestrator Client
+$telebirr = new TelebirrClient($config, $tokenManager, $signatureService, $httpClient, $logger);
 ```
 
 ### 2. Standard H5 / Web Checkout Flow
@@ -198,7 +249,7 @@ $telebirr = new TelebirrClient($config, $logger);
 try {
     $paymentUrl = $telebirr->createOrder('Standard Plan Subscription', 250.00);
     
-    // Redirect customer
+    // Redirect customer to the secure Telebirr gateway
     header('Location: ' . $paymentUrl);
     exit;
 } catch (Exception $e) {
@@ -243,11 +294,12 @@ if ($result['success']) {
 
 ## 🔒 Security, Signing and Padding Details
 
-The Telebirr Gateway uses a dual signing structure:
+The Telebirr Gateway utilizes a complex dual signing architecture. Our `SignatureService` handles this securely under the hood:
 1. **Pre-order API Request Signature:** Signed with **RSA-PSS Padding** with SHA256 hash & SHA256 Mask Generation Function (`withMGFHash('sha256')`).
-2. **Web Paygate Redirect URL Signature:** Uses **RSA-PKCS1 Padding** on the web payload variables (`appid`, `merch_code`, `nonce_str`, `prepay_id`, `timestamp`, `sign_type`), while leaving parameters like `version` and `trade_type` appended to the URL unsigned.
+2. **Webhook Verification:** Incoming callbacks are cryptographically verified using **RSA-PSS Padding** against the provided Public Key.
+3. **Web Paygate Redirect URL Signature:** Uses **RSA-PKCS1 Padding** on the web payload variables (`appid`, `merch_code`, `nonce_str`, `prepay_id`, `timestamp`, `sign_type`), while leaving structural parameters like `version` and `trade_type` appended to the URL securely.
 
-This SDK abstracts all of these complexities automatically via `phpseclib3`.
+This SDK dynamically abstracts all these complexities via `phpseclib3`.
 
 ---
 
@@ -261,4 +313,3 @@ This SDK abstracts all of these complexities automatically via `phpseclib3`.
 ## 📄 License
 
 This SDK is open-sourced software licensed under the [MIT License](LICENSE).
-
