@@ -6,7 +6,19 @@
          cacheDirectory=".phpunit.cache">
     <testsuites>
         <testsuite name="Unit">
-            <directory suffix="Test.php">tests</directory>
+            <directory suffix="Test.php">tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Integration">
+            <directory suffix="Test.php">tests/Integration</directory>
+        </testsuite>
+        <testsuite name="Laravel">
+            <directory suffix="Test.php">tests/Laravel</directory>
+        </testsuite>
+        <testsuite name="Security">
+            <directory suffix="Test.php">tests/Security</directory>
+        </testsuite>
+        <testsuite name="PaymentFlow">
+            <directory suffix="Test.php">tests/PaymentFlow</directory>
         </testsuite>
     </testsuites>
 </phpunit>
