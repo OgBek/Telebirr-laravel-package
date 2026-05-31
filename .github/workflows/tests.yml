@@ -28,7 +28,9 @@ jobs:
           composer update --prefer-dist --no-interaction
 
       - name: Execute Static Analysis (PHPStan)
-        run: vendor/bin/phpstan analyse
+        run: |
+          chmod +x vendor/bin/phpstan
+          vendor/bin/phpstan analyse
 
       - name: Run Tests
         run: |
