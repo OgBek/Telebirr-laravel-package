@@ -3,4 +3,6 @@ parameters:
     paths:
         - src
     ignoreErrors:
-        - identifier: missingType.iterableValue
+        - message: '#Function config_path not found#'
+        - message: '#Call to an undefined method phpseclib3\\Crypt\\Common\\PrivateKey\|phpseclib3\\Crypt\\Common\\PublicKey::withHash\(\)#'
+        - message: '#Call to an undefined method phpseclib3\\Crypt\\Common\\PublicKey::withHash\(\)#'
