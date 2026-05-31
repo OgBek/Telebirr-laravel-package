@@ -134,7 +134,7 @@ class TelebirrClient implements TelebirrClientInterface
             if ($rawRequestFlag === true) {
                 return $this->getRawRequestString($prepayId, $params['trade_type'] ?? 'Checkout');
             }
-            return $this->createRawRequestUrl($prepayId, $params['trade_type'] ?? 'Checkout');
+            return $this->createRawRequestUrl($prepayId, $params['trade_type'] ?? 'Checkout', $merchantOrderId);
         }
 
         throw new TelebirrException('Failed to extract prepay_id from Telebirr response.');
@@ -170,7 +170,7 @@ class TelebirrClient implements TelebirrClientInterface
         return $rawRequest;
     }
 
-    protected function createRawRequestUrl(string $prepayId, string $tradeType = 'Checkout'): string
+    protected function createRawRequestUrl(string $prepayId, string $tradeType = 'Checkout', ?string $merchantOrderId = null): string
     {
         $map = [
             'appid' => $this->merchantAppId,
@@ -180,6 +180,10 @@ class TelebirrClient implements TelebirrClientInterface
             'timestamp' => $this->createTimeStamp(),
             'sign_type' => 'SHA256WithRSA'
         ];
+
+        if ($merchantOrderId !== null) {
+            $map['merch_order_id'] = $merchantOrderId;
+        }
 
         $sign = $this->signatureService->signPSS($map, $this->privateKey);
 
@@ -194,6 +198,10 @@ class TelebirrClient implements TelebirrClientInterface
             "version=1.0",
             "trade_type=" . $tradeType
         ];
+
+        if ($merchantOrderId !== null) {
+            $rawRequestArray[] = "merch_order_id=" . urlencode($merchantOrderId);
+        }
         
         $rawRequest = implode("&", $rawRequestArray);
 
