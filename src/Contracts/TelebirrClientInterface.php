@@ -53,6 +53,25 @@ interface TelebirrClientInterface
     public function verifyCallbackSignature(array $payload, string $signature): bool;
 
     /**
+     * Verify that the callback timestamp is within an acceptable window to prevent replay attacks.
+     *
+     * @param array $payload
+     * @param int $maxAgeSeconds Default 300 seconds (5 minutes)
+     * @return bool
+     */
+    public function verifyCallbackTimestamp(array $payload, int $maxAgeSeconds = 300): bool;
+
+    /**
+     * Verify that the callback nonce has not been processed recently to prevent replay attacks.
+     * Requires Laravel Cache. If Cache is not available, it safely returns true (bypass).
+     *
+     * @param array $payload
+     * @param int $cacheTtlSeconds Default 300 seconds (5 minutes) to match timestamp max age
+     * @return bool True if valid (not a replay), False if nonce already exists in cache.
+     */
+    public function verifyNonce(array $payload, int $cacheTtlSeconds = 300): bool;
+
+    /**
      * Request a refund for an existing order.
      *
      * @param string $outTradeNo The original merchant order ID

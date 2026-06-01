@@ -6,6 +6,7 @@ namespace Bekambeyene\Telebirr;
 
 use Bekambeyene\Telebirr\Contracts\TelebirrClientInterface;
 use Bekambeyene\Telebirr\Exceptions\TelebirrException;
+use Bekambeyene\Telebirr\Exceptions\TelebirrServerException;
 use Bekambeyene\Telebirr\Services\SignatureService;
 use Bekambeyene\Telebirr\Services\TelebirrHttpClient;
 use Bekambeyene\Telebirr\Services\TokenManager;
@@ -82,7 +83,23 @@ class TelebirrClient implements TelebirrClientInterface
 
         // Check if the key is base64 encoded
         if (str_starts_with($key, 'base64:')) {
-            return base64_decode(substr($key, 7));
+            $key = base64_decode(substr($key, 7));
+        }
+
+        // If it's a raw base64 string without headers/footers, format it properly
+        if (!str_contains($key, '-----BEGIN')) {
+            // Determine if it looks like a private or public key by its size or context
+            // A typical 2048-bit raw base64 private key is roughly 1600+ chars.
+            // A public key is usually ~390 chars. We will use a generic PUBLIC/PRIVATE wrapping
+            // based on the presence of typical public key characters or just default it.
+            // A better way is to pass the type if possible, but we can infer based on length.
+            $type = strlen($key) > 1000 ? 'PRIVATE' : 'PUBLIC';
+            
+            $formattedKey = "-----BEGIN {$type} KEY-----\n";
+            $formattedKey .= chunk_split($key, 64, "\n");
+            $formattedKey .= "-----END {$type} KEY-----";
+            
+            return $formattedKey;
         }
 
         return $key;
@@ -169,6 +186,16 @@ class TelebirrClient implements TelebirrClientInterface
                 'X-APP-Key' => $this->fabricAppId,
             ]
         );
+
+        $code = $response['code'] ?? null;
+        $msg = $response['msg'] ?? '';
+
+        if ($code !== null && $code !== '0' && $code !== '200') {
+            if ($code === '60200087') {
+                throw new TelebirrServerException("Telebirr servers are currently busy or syncing. Please try your payment a bit later.", $code, $msg);
+            }
+            throw new TelebirrServerException("Telebirr API Error: " . $msg, $code, $msg);
+        }
 
         $biz = $response['biz_content'] ?? [];
         $prepayId = $biz['prepay_id'] ?? $biz['prePayId'] ?? null;

@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Facade;
  * @method static array verifyPayment(string $merchantOrderId)
  * @method static array initiatePayment(string $orderId, float $amount, string $subject, array $customerInfo = [])
  * @method static bool verifyCallbackSignature(array $payload, string $signature)
+ * @method static bool verifyCallbackTimestamp(array $payload, int $maxAgeSeconds = 300)
+ * @method static bool verifyNonce(array $payload, int $cacheTtlSeconds = 300)
  *
  * @see \Bekambeyene\Telebirr\Contracts\TelebirrClientInterface
  * @see \Bekambeyene\Telebirr\TelebirrClient
