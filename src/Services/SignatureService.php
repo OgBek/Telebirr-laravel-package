@@ -19,55 +19,25 @@ class SignatureService
     public function buildCanonicalString(array $params): string
     {
         $excludeFields = ['sign', 'sign_type', 'header', 'refund_info', 'openType', 'raw_request'];
-        
-        ksort($params);
-        $stringApplet = '';
-
-        foreach ($params as $key => $values) {
-            if (in_array($key, $excludeFields) || $values === null || $values === '') {
-                continue;
-            }
-
-            if ($key === 'biz_content') {
-                if (is_array($values)) {
-                    ksort($values);
-                    foreach ($values as $value => $singleValue) {
-                        $stringApplet .= ($stringApplet === '' ? '' : '&') . $value . '=' . $singleValue;
-                    }
-                } elseif (is_string($values)) {
-                    // Sometimes biz_content might be JSON stringified, though normally it's array
-                    $stringApplet .= ($stringApplet === '' ? '' : '&') . $key . '=' . $values;
-                }
-            } else {
-                $stringApplet .= ($stringApplet === '' ? '' : '&') . $key . '=' . $values;
-            }
-        }
-
-        // To fix the dual sorting bug, we do not re-explode and re-sort. 
-        // We just return the string built from sorted keys.
-        // Wait, the previous implementation did:
-        // $sortedArray = explode('&', $stringApplet); sort($sortedArray); return implode('&', $sortedArray);
-        // The instructions said "Standardize on a single, clean key-sorting mechanism".
-        // If we strictly do ksort on the top level and nested biz_content, that might differ from a flat string sort.
-        // Let's implement the corrected flat sort if that's what Telebirr actually expects.
-        // The review says: "running a secondary string-level sort() on the exploded components afterward will scrambling the underlying canonical sort order... Standardize on a single, clean key-sorting mechanism".
-        // Let's build the array of "key=value" strings and sort that array once.
-
         $components = [];
-        foreach ($params as $key => $values) {
-            if (in_array($key, $excludeFields) || $values === null || $values === '') {
+
+        foreach ($params as $key => $value) {
+            if (in_array($key, $excludeFields) || $value === null || $value === '') {
                 continue;
             }
-            if ($key === 'biz_content' && is_array($values)) {
-                foreach ($values as $value => $singleValue) {
-                    $components[] = $value . '=' . $singleValue;
+
+            if ($key === 'biz_content' && is_array($value)) {
+                foreach ($value as $k => $v) {
+                    if ($v !== null && $v !== '') {
+                        $components[] = $k . '=' . $v;
+                    }
                 }
             } else {
-                $components[] = $key . '=' . $values;
+                $components[] = $key . '=' . $value;
             }
         }
 
-        sort($components);
+        sort($components, SORT_STRING);
         return implode('&', $components);
     }
 
@@ -86,7 +56,8 @@ class SignatureService
 
             $rsa = RSA::load($privateKey)
                 ->withHash('sha256')
-                ->withMGFHash('sha256');
+                ->withMGFHash('sha256')
+                ->withSaltLength(32);
 
             $signature = $rsa->sign($canonicalString);
 
@@ -137,7 +108,8 @@ class SignatureService
 
             $rsa = RSA::loadPublicKey($publicKey)
                 ->withHash('sha256')
-                ->withMGFHash('sha256');
+                ->withMGFHash('sha256')
+                ->withSaltLength(32);
 
             return $rsa->verify($canonicalString, base64_decode($signature));
         } catch (\Throwable $e) {
