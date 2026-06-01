@@ -82,13 +82,13 @@ class WebhookSecurityTest extends TestCase
     public function test_rejects_signature_from_different_key_pair()
     {
         // Generate a different key pair (attacker's keys)
-        $attackerKey = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
-        openssl_pkey_export($attackerKey, $attackerPrivateKey);
+        $key = \phpseclib3\Crypt\RSA::createKey(1024);
+        $otherPrivateKey = $key->toString('PKCS1');
 
         $payload = ['merch_order_id' => '123', 'trade_status' => 'PAY_SUCCESS'];
 
         // Attacker signs with their own private key
-        $attackerSignature = $this->signatureService->signPSS($payload, $attackerPrivateKey);
+        $attackerSignature = $this->signatureService->signPSS($payload, $otherPrivateKey);
 
         // Merchant verifies against the legitimate public key — must fail
         $isValid = $this->signatureService->verifyPSS($payload, $attackerSignature, $this->publicKey);
