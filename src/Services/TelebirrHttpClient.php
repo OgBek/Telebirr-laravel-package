@@ -13,7 +13,8 @@ class TelebirrHttpClient
     protected string $baseUrl;
     protected bool $verifySsl;
     protected int $timeout;
-    protected Client $client;
+    protected ?Client $guzzleClient = null;
+    protected bool $useLaravelHttp = false;
 
     /**
      * @param string $baseUrl
@@ -25,7 +26,19 @@ class TelebirrHttpClient
         $this->baseUrl = rtrim($baseUrl, '/');
         $this->verifySsl = $verifySsl;
         $this->timeout = $timeout;
-        $this->client = new Client();
+    }
+
+    /**
+     * Set whether to use Laravel's HTTP client.
+     * This allows Laravel's testing utilities like Http::fake() to work.
+     * 
+     * @param bool $use
+     * @return $this
+     */
+    public function setUseLaravelHttp(bool $use): self
+    {
+        $this->useLaravelHttp = $use;
+        return $this;
     }
 
     /**
@@ -41,6 +54,59 @@ class TelebirrHttpClient
     {
         $url = $this->baseUrl . '/' . ltrim($endpoint, '/');
 
+        if ($this->useLaravelHttp && class_exists(\Illuminate\Support\Facades\Http::class)) {
+            return $this->postWithLaravel($url, $payload, $headers);
+        }
+
+        return $this->postWithGuzzle($url, $payload, $headers);
+    }
+
+    /**
+     * Execute the request using Laravel's Http client.
+     */
+    protected function postWithLaravel(string $url, $payload, array $headers): array
+    {
+        try {
+            $request = \Illuminate\Support\Facades\Http::withHeaders(array_merge([
+                'Content-Type' => 'application/json',
+            ], $headers))
+            ->timeout($this->timeout)
+            ->withOptions([
+                'verify' => $this->verifySsl,
+            ]);
+
+            if (is_string($payload)) {
+                $response = $request->send('POST', $url, [
+                    'body' => $payload
+                ]);
+            } else {
+                $response = $request->post($url, $payload);
+            }
+
+            $statusCode = $response->status();
+            $body = $response->body();
+
+            if ($response->successful()) {
+                $result = json_decode($body, true);
+                if (json_last_error() === JSON_ERROR_NONE) {
+                    return $result;
+                }
+            }
+
+            throw new NetworkException("Telebirr API error (Status: {$statusCode}): {$body}");
+        } catch (\Throwable $e) {
+            if ($e instanceof NetworkException) {
+                throw $e;
+            }
+            throw new NetworkException("Telebirr API communication failure: " . $e->getMessage(), 0, $e);
+        }
+    }
+
+    /**
+     * Execute the request using GuzzleHttp\Client directly.
+     */
+    protected function postWithGuzzle(string $url, $payload, array $headers): array
+    {
         $options = [
             'headers' => array_merge([
                 'Content-Type' => 'application/json',
@@ -57,8 +123,12 @@ class TelebirrHttpClient
         }
 
         try {
-            $response = $this->client->request('POST', $url, $options);
-            return $this->handleResponse($response);
+            if (!$this->guzzleClient) {
+                $this->guzzleClient = new Client();
+            }
+
+            $response = $this->guzzleClient->request('POST', $url, $options);
+            return $this->handleGuzzleResponse($response);
         } catch (GuzzleException $e) {
             throw new NetworkException("Telebirr API communication failure: " . $e->getMessage(), 0, $e);
         } catch (\Throwable $e) {
@@ -67,13 +137,9 @@ class TelebirrHttpClient
     }
 
     /**
-     * Handle the HTTP response.
-     *
-     * @param \Psr\Http\Message\ResponseInterface $response
-     * @return array
-     * @throws NetworkException
+     * Handle the Guzzle HTTP response.
      */
-    protected function handleResponse(\Psr\Http\Message\ResponseInterface $response): array
+    protected function handleGuzzleResponse(\Psr\Http\Message\ResponseInterface $response): array
     {
         $statusCode = $response->getStatusCode();
         $body = (string)$response->getBody();
