@@ -33,7 +33,10 @@ class TelebirrServiceProvider extends ServiceProvider
             // Allow environment-based toggle or explicit config for SSL verification
             $verifySsl = $config['ssl_verify'] ?? $app->environment('production');
 
-            return new TelebirrHttpClient($baseUrl, (bool)$verifySsl);
+            $client = new TelebirrHttpClient($baseUrl, (bool)$verifySsl);
+            $client->setUseLaravelHttp(true);
+            
+            return $client;
         });
 
         $this->app->singleton(TokenManager::class, function ($app) {
