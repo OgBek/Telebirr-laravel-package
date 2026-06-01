@@ -38,7 +38,7 @@ class TelebirrClient implements TelebirrClientInterface
         $this->signatureService = $signatureService;
         $this->httpClient = $httpClient;
 
-        $this->webUrl = $config['web_url'] ?? 'https://developerportal.ethiotelebirr.et:38443/payment/web/paygate';
+        $this->webUrl = $config['web_url'] ?? '';
         $this->fabricAppId = $config['fabric_app_id'] ?? '';
         $this->merchantAppId = $config['merchant_app_id'] ?? '';
         $this->merchantCode = $config['merchant_code'] ?? '';
@@ -83,8 +83,9 @@ class TelebirrClient implements TelebirrClientInterface
         $this->log("Telebirr: Using Merchant Order ID: {$merchantOrderId}");
 
         $returnUrl = $this->returnUrl;
-        $separator = (parse_url($returnUrl, PHP_URL_QUERY) == null) ? '?' : '&';
-        $returnUrl .= $separator . 'track_number=' . $merchantOrderId;
+        
+        // Removed ?track_number= parameter pollution to prevent Telebirr redirect corruption.
+        // It is recommended to use merch_order_id from the callback or store it in your session.
 
         $bizContent = [
             'notify_url' => $this->notifyUrl,
@@ -140,6 +141,11 @@ class TelebirrClient implements TelebirrClientInterface
         throw new TelebirrException('Failed to extract prepay_id from Telebirr response.');
     }
 
+    /**
+     * Get Raw Request String.
+     * Note: This method signs the request using PKCS1 padding, whereas standard checkout uses PSS.
+     * Check Telebirr documentation to ensure this aligns with your integration requirements.
+     */
     public function getRawRequestString(string $prepayId, string $tradeType = 'Checkout', ?string $returnUrl = null): string
     {
         $maps = [
@@ -181,26 +187,22 @@ class TelebirrClient implements TelebirrClientInterface
             'sign_type' => 'SHA256WithRSA'
         ];
 
+        if ($tradeType === 'Checkout') {
+            $map['version'] = '1.0';
+            $map['trade_type'] = $tradeType;
+        }
+
         if ($merchantOrderId !== null) {
             $map['merch_order_id'] = $merchantOrderId;
         }
 
         $sign = $this->signatureService->signPSS($map, $this->privateKey);
 
-        $rawRequestArray = [
-            "appid=" . urlencode($map['appid']),
-            "merch_code=" . urlencode($map['merch_code']),
-            "nonce_str=" . urlencode($map['nonce_str']),
-            "prepay_id=" . urlencode($map['prepay_id']),
-            "timestamp=" . urlencode($map['timestamp']),
-            "sign_type=" . urlencode($map['sign_type']),
-            "sign=" . urlencode($sign),
-            "version=1.0",
-            "trade_type=" . $tradeType
-        ];
+        $map['sign'] = $sign;
 
-        if ($merchantOrderId !== null) {
-            $rawRequestArray[] = "merch_order_id=" . urlencode($merchantOrderId);
+        $rawRequestArray = [];
+        foreach ($map as $key => $value) {
+            $rawRequestArray[] = $key . "=" . urlencode((string)$value);
         }
         
         $rawRequest = implode("&", $rawRequestArray);
@@ -290,6 +292,12 @@ class TelebirrClient implements TelebirrClientInterface
         }
     }
 
+    /**
+     * Verify callback signature.
+     * 
+     * Security Note: To prevent replay attacks, you MUST validate that the 'timestamp' 
+     * is recent (e.g., within 5 minutes) and verify that the 'nonce_str' hasn't been used before.
+     */
     public function verifyCallbackSignature(array $payload, string $signature): bool
     {
         if (empty($this->publicKey)) {
@@ -376,12 +384,7 @@ class TelebirrClient implements TelebirrClientInterface
 
     protected function createNonceStr(int $length = 32): string
     {
-        try {
-            return bin2hex(random_bytes(max(1, (int)($length / 2))));
-        } catch (\Exception $e) {
-            // Fallback if random_bytes is unavailable for some reason
-            return substr(str_shuffle(str_repeat($x='0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ', (int)ceil($length/strlen($x)) )),1,$length);
-        }
+        return bin2hex(random_bytes(max(1, (int)($length / 2))));
     }
 
     protected function createTimeStamp(): string
@@ -391,6 +394,6 @@ class TelebirrClient implements TelebirrClientInterface
 
     protected function createMerchantOrderId(): string
     {
-        return (string)floor(microtime(true) * 1000);
+        return sprintf('%d', microtime(true) * 1000);
     }
 }

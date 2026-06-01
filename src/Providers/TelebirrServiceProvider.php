@@ -28,7 +28,7 @@ class TelebirrServiceProvider extends ServiceProvider
 
         $this->app->singleton(TelebirrHttpClient::class, function ($app) {
             $config = $app['config']['telebirr'];
-            $baseUrl = $config['base_url'] ?? 'https://developerportal.ethiotelebirr.et:38443/apiaccess/payment/gateway';
+            $baseUrl = $config['base_url'] ?? '';
             
             // Allow environment-based toggle or explicit config for SSL verification
             $verifySsl = $config['ssl_verify'] ?? $app->environment('production');

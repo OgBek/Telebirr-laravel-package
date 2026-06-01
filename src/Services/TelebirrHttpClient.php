@@ -5,14 +5,15 @@ declare(strict_types=1);
 namespace Bekambeyene\Telebirr\Services;
 
 use Bekambeyene\Telebirr\Exceptions\NetworkException;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Http\Client\Response;
+use GuzzleHttp\Client;
+use GuzzleHttp\Exception\GuzzleException;
 
 class TelebirrHttpClient
 {
     protected string $baseUrl;
     protected bool $verifySsl;
     protected int $timeout;
+    protected Client $client;
 
     /**
      * @param string $baseUrl
@@ -24,6 +25,7 @@ class TelebirrHttpClient
         $this->baseUrl = rtrim($baseUrl, '/');
         $this->verifySsl = $verifySsl;
         $this->timeout = $timeout;
+        $this->client = new Client();
     }
 
     /**
@@ -39,42 +41,44 @@ class TelebirrHttpClient
     {
         $url = $this->baseUrl . '/' . ltrim($endpoint, '/');
 
-        try {
-            $request = Http::withHeaders(array_merge([
+        $options = [
+            'headers' => array_merge([
                 'Content-Type' => 'application/json',
-            ], $headers))
-            ->timeout($this->timeout)
-            ->withOptions([
-                'verify' => $this->verifySsl,
-            ]);
+            ], $headers),
+            'timeout' => $this->timeout,
+            'verify' => $this->verifySsl,
+            'http_errors' => false,
+        ];
 
-            if (is_string($payload)) {
-                $response = $request->send('POST', $url, [
-                    'body' => $payload
-                ]);
-            } else {
-                $response = $request->post($url, $payload);
-            }
+        if (is_string($payload)) {
+            $options['body'] = $payload;
+        } else {
+            $options['json'] = $payload;
+        }
 
+        try {
+            $response = $this->client->request('POST', $url, $options);
             return $this->handleResponse($response);
-        } catch (\Throwable $e) {
+        } catch (GuzzleException $e) {
             throw new NetworkException("Telebirr API communication failure: " . $e->getMessage(), 0, $e);
+        } catch (\Throwable $e) {
+            throw new NetworkException("Telebirr API request error: " . $e->getMessage(), 0, $e);
         }
     }
 
     /**
      * Handle the HTTP response.
      *
-     * @param Response $response
+     * @param \Psr\Http\Message\ResponseInterface $response
      * @return array
      * @throws NetworkException
      */
-    protected function handleResponse(Response $response): array
+    protected function handleResponse(\Psr\Http\Message\ResponseInterface $response): array
     {
-        $statusCode = $response->status();
-        $body = $response->body();
+        $statusCode = $response->getStatusCode();
+        $body = (string)$response->getBody();
 
-        if ($response->successful()) {
+        if ($statusCode >= 200 && $statusCode < 300) {
             $result = json_decode($body, true);
             if (json_last_error() === JSON_ERROR_NONE) {
                 return $result;
