@@ -13,6 +13,7 @@ class TelebirrHttpClient
     protected string $baseUrl;
     protected bool $verifySsl;
     protected int $timeout;
+    protected int $maxRetries;
     protected ?Client $guzzleClient = null;
     protected bool $useLaravelHttp = false;
 
@@ -20,12 +21,14 @@ class TelebirrHttpClient
      * @param string $baseUrl
      * @param bool $verifySsl Whether to verify SSL (should be true in production)
      * @param int $timeout Request timeout in seconds
+     * @param int $maxRetries Maximum number of retries on failure
      */
-    public function __construct(string $baseUrl, bool $verifySsl = true, int $timeout = 30)
+    public function __construct(string $baseUrl, bool $verifySsl = true, int $timeout = 30, int $maxRetries = 3)
     {
         $this->baseUrl = rtrim($baseUrl, '/');
         $this->verifySsl = $verifySsl;
         $this->timeout = $timeout;
+        $this->maxRetries = $maxRetries;
 
         try {
             if (class_exists(\Illuminate\Support\Facades\Http::class)) {
@@ -82,6 +85,7 @@ class TelebirrHttpClient
                 'Content-Type' => 'application/json',
             ], $headers))
             ->timeout($this->timeout)
+            ->retry($this->maxRetries, 100, null, false)
             ->withOptions([
                 'verify' => $this->verifySsl,
             ]);
@@ -133,18 +137,34 @@ class TelebirrHttpClient
             $options['json'] = $payload;
         }
 
-        try {
-            if (!$this->guzzleClient) {
-                $this->guzzleClient = new Client();
+        $attempts = 0;
+        $lastException = null;
+
+        while ($attempts <= $this->maxRetries) {
+            try {
+                if (!$this->guzzleClient) {
+                    $this->guzzleClient = new Client();
+                }
+
+                $response = $this->guzzleClient->request('POST', $url, $options);
+                return $this->handleGuzzleResponse($response);
+            } catch (GuzzleException $e) {
+                $lastException = $e;
+            } catch (\Throwable $e) {
+                $lastException = $e;
             }
 
-            $response = $this->guzzleClient->request('POST', $url, $options);
-            return $this->handleGuzzleResponse($response);
-        } catch (GuzzleException $e) {
-            throw new NetworkException("Telebirr API communication failure: " . $e->getMessage(), 0, $e);
-        } catch (\Throwable $e) {
-            throw new NetworkException("Telebirr API request error: " . $e->getMessage(), 0, $e);
+            $attempts++;
+            if ($attempts <= $this->maxRetries) {
+                usleep(100000 * (2 ** ($attempts - 1))); // Exponential backoff: 100ms, 200ms, 400ms...
+            }
         }
+
+        if ($lastException instanceof GuzzleException) {
+            throw new NetworkException("Telebirr API communication failure after {$this->maxRetries} retries: " . $lastException->getMessage(), 0, $lastException);
+        }
+        
+        throw new NetworkException("Telebirr API request error after {$this->maxRetries} retries: " . $lastException->getMessage(), 0, $lastException);
     }
 
     /**

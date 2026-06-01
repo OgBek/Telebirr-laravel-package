@@ -142,25 +142,35 @@ class TelebirrClient implements TelebirrClientInterface
     }
 
     /**
+     * Build common parameters for H5 request generation.
+     */
+    protected function buildBaseRequestParams(string $prepayId, string $tradeType): array
+    {
+        $map = [
+            'appid' => $this->merchantAppId,
+            'merch_code' => $this->merchantCode,
+            'nonce_str' => $this->createNonceStr(),
+            'prepay_id' => $prepayId,
+            'timestamp' => $this->createTimeStamp(),
+            'sign_type' => 'SHA256WithRSA'
+        ];
+
+        if ($tradeType === 'Checkout') {
+            $map['version'] = '1.0';
+            $map['trade_type'] = $tradeType;
+        }
+
+        return $map;
+    }
+
+    /**
      * Get Raw Request String.
      * Note: This method signs the request using PKCS1 padding, whereas standard checkout uses PSS.
      * Check Telebirr documentation to ensure this aligns with your integration requirements.
      */
     public function getRawRequestString(string $prepayId, string $tradeType = 'Checkout', ?string $returnUrl = null): string
     {
-        $maps = [
-            "appid" => $this->merchantAppId,
-            "merch_code" => $this->merchantCode,
-            "nonce_str" => $this->createNonceStr(),
-            "prepay_id" => $prepayId,
-            "timestamp" => $this->createTimeStamp(),
-            "sign_type" => "SHA256WithRSA"
-        ];
-        
-        if ($tradeType === 'Checkout') {
-            $maps['version'] = '1.0';
-            $maps['trade_type'] = $tradeType;
-        }
+        $maps = $this->buildBaseRequestParams($prepayId, $tradeType);
         
         if (!empty($returnUrl)) {
             $maps["returnUrl"] = $returnUrl;
@@ -178,26 +188,13 @@ class TelebirrClient implements TelebirrClientInterface
 
     protected function createRawRequestUrl(string $prepayId, string $tradeType = 'Checkout', ?string $merchantOrderId = null): string
     {
-        $map = [
-            'appid' => $this->merchantAppId,
-            'merch_code' => $this->merchantCode,
-            'nonce_str' => $this->createNonceStr(),
-            'prepay_id' => $prepayId,
-            'timestamp' => $this->createTimeStamp(),
-            'sign_type' => 'SHA256WithRSA'
-        ];
-
-        if ($tradeType === 'Checkout') {
-            $map['version'] = '1.0';
-            $map['trade_type'] = $tradeType;
-        }
+        $map = $this->buildBaseRequestParams($prepayId, $tradeType);
 
         if ($merchantOrderId !== null) {
             $map['merch_order_id'] = $merchantOrderId;
         }
 
         $sign = $this->signatureService->signPSS($map, $this->privateKey);
-
         $map['sign'] = $sign;
 
         $rawRequestArray = [];
@@ -307,6 +304,30 @@ class TelebirrClient implements TelebirrClientInterface
         return $this->signatureService->verifyPSS($payload, $signature, $this->publicKey);
     }
 
+    /**
+     * Verify that the callback timestamp is within an acceptable window to prevent replay attacks.
+     *
+     * @param array $payload
+     * @param int $maxAgeSeconds Default 300 seconds (5 minutes)
+     * @return bool
+     */
+    public function verifyCallbackTimestamp(array $payload, int $maxAgeSeconds = 300): bool
+    {
+        if (!isset($payload['timestamp'])) {
+            return false;
+        }
+
+        $requestTime = (int)$payload['timestamp'];
+        
+        // Handle cases where timestamp might be in milliseconds instead of seconds
+        if (strlen((string)$requestTime) >= 13) {
+            $requestTime = (int)($requestTime / 1000);
+        }
+
+        $currentTime = time();
+        return abs($currentTime - $requestTime) <= $maxAgeSeconds;
+    }
+
     public function refundOrder(string $outTradeNo, float $refundAmount, string $outRequestNo, array $params = []): array
     {
         if ($refundAmount <= 0) {
@@ -394,6 +415,6 @@ class TelebirrClient implements TelebirrClientInterface
 
     protected function createMerchantOrderId(): string
     {
-        return sprintf('%d', microtime(true) * 1000);
+        return 'ORDER_' . date('YmdHis') . strtoupper(bin2hex(random_bytes(4)));
     }
 }

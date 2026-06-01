@@ -78,8 +78,8 @@ This creates a default config file at `config/telebirr.php`.
 Add the following credentials provided by Ethio Telecom to your `.env` file:
 
 ```env
-TELEBIRR_BASE_URL=https://developerportal.ethiotelebirr.et:38443/apiaccess/payment/gateway
-TELEBIRR_WEB_URL=https://developerportal.ethiotelebirr.et:38443/payment/web/paygate
+TELEBIRR_ENV=sandbox
+
 TELEBIRR_FABRIC_APP_ID=your_fabric_app_id
 TELEBIRR_APP_SECRET=your_app_secret
 TELEBIRR_MERCHANT_APP_ID=your_merchant_app_id
@@ -152,6 +152,12 @@ class TelebirrPaymentController extends Controller
                 return response('invalid signature', 403);
             }
 
+            // Protect against replay attacks by validating the timestamp
+            if (!Telebirr::verifyCallbackTimestamp($payload)) {
+                Log::warning('Telebirr Webhook Timestamp Expired or Missing!');
+                return response('request expired', 403);
+            }
+
             $tradeStatus = $request->input('trade_status');
             $merchantOrderId = $request->input('merch_order_id');
 
@@ -210,8 +216,7 @@ use Bekambeyene\Telebirr\Services\SignatureService;
 use Bekambeyene\Telebirr\Services\TelebirrHttpClient;
 
 $config = [
-    'base_url' => 'https://developerportal.ethiotelebirr.et:38443/apiaccess/payment/gateway',
-    'web_url' => 'https://developerportal.ethiotelebirr.et:38443/payment/web/paygate',
+    'environment' => 'sandbox', // or 'production'
     'fabric_app_id' => 'your_fabric_app_id',
     'app_secret' => 'your_app_secret',
     'merchant_app_id' => 'your_merchant_app_id',
@@ -305,10 +310,15 @@ This SDK dynamically abstracts all these complexities via `phpseclib3`.
 ---
 ## Default endpoints used by the library:
 
-- Test API: https://developerportal.ethiotelebirr.et:38443/apiaccess/payment/gateway
-- Production API: https://superapp.ethiomobilemoney.et:38443/apiaccess/payment/gateway
-- Test Web Checkout Redirect: https://developerportal.ethiotelebirr.et:38443/payment/web/paygate?
-- Production Web Checkout Redirect: https://superapp.ethiomobilemoney.et:38443/payment/web/paygate?
+By setting `TELEBIRR_ENV=sandbox` or `TELEBIRR_ENV=production` in your `.env` (or config array in Vanilla PHP), the SDK automatically routes to the correct Telebirr endpoints:
+
+**Sandbox (Test) Endpoints:**
+- API: https://developerportal.ethiotelebirr.et:38443/apiaccess/payment/gateway
+- Web Checkout Redirect: https://developerportal.ethiotelebirr.et:38443/payment/web/paygate?
+
+**Production Endpoints:**
+- API: https://app.ethiotelebirr.et:38443/apiaccess/payment/gateway
+- Web Checkout Redirect: https://app.ethiotelebirr.et:38443/payment/web/paygate?
   
 ## 🔗 Links
 
