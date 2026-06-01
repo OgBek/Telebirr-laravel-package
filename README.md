@@ -102,6 +102,26 @@ YOUR_MERCHANT_PRIVATE_KEY_HERE
 
 ### 3. Usage inside Laravel Controllers
 
+> [!CAUTION]
+> **CSRF Middleware Exception Required!**
+> Telebirr sends webhooks directly from its servers via a `POST` request. It does not carry a Laravel CSRF token. If you place your webhook route in `routes/web.php` without an exception, Laravel will instantly block it with a **419 Page Expired** error.
+> 
+> **For Laravel 11+:** Open `bootstrap/app.php` and configure the exception:
+> ```php
+> ->withMiddleware(function (Middleware $middleware) {
+>     $middleware->validateCsrfTokens(except: [
+>         'payment/notification', // Replace with your exact route URI
+>     ]);
+> })
+> ```
+> **For Laravel 10 and below:** Open `app/Http/Middleware/VerifyCsrfToken.php` and add your URI to the `$except` array:
+> ```php
+> protected $except = [
+>     'payment/notification', // Replace with your exact route URI
+> ];
+> ```
+> Alternatively, place the route inside `routes/api.php` instead of `web.php`.
+
 ```php
 <?php
 
