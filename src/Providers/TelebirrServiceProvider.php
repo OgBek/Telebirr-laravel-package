@@ -43,11 +43,13 @@ class TelebirrServiceProvider extends ServiceProvider
             $config = $app['config']['telebirr'];
             $fabricAppId = $config['fabric_app_id'] ?? '';
             $appSecret = $config['app_secret'] ?? '';
+            $merchantAppId = $config['merchant_app_id'] ?? '';
 
             return new TokenManager(
                 $app->make(TelebirrHttpClient::class),
                 $fabricAppId,
-                $appSecret
+                $appSecret,
+                $merchantAppId
             );
         });
 

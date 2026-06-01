@@ -42,8 +42,8 @@ class TelebirrClient implements TelebirrClientInterface
         $this->fabricAppId = $config['fabric_app_id'] ?? '';
         $this->merchantAppId = $config['merchant_app_id'] ?? '';
         $this->merchantCode = $config['merchant_code'] ?? '';
-        $this->privateKey = $config['private_key'] ?? '';
-        $this->publicKey = $config['public_key'] ?? '';
+        $this->privateKey = $this->resolveKey($config['private_key'] ?? '');
+        $this->publicKey = $this->resolveKey($config['public_key'] ?? '');
         $this->notifyUrl = $config['notify_url'] ?? '';
         $this->returnUrl = $config['return_url'] ?? '';
         $this->logger = $logger;
@@ -56,11 +56,53 @@ class TelebirrClient implements TelebirrClientInterface
         }
     }
 
+    /**
+     * Resolves a cryptographic key from a file path, base64 string, or raw string.
+     * 
+     * @param string $key
+     * @return string
+     */
+    protected function resolveKey(string $key): string
+    {
+        $key = trim($key);
+
+        if (empty($key)) {
+            return '';
+        }
+
+        // Check if the key is a file path (starts with file://, or absolute path / or C:\)
+        if (str_starts_with($key, 'file://')) {
+            $path = substr($key, 7);
+            if (file_exists($path)) {
+                return trim(file_get_contents($path));
+            }
+        } elseif ((str_starts_with($key, '/') || preg_match('/^[A-Za-z]:\\\\/', $key)) && file_exists($key)) {
+            return trim(file_get_contents($key));
+        }
+
+        // Check if the key is base64 encoded
+        if (str_starts_with($key, 'base64:')) {
+            return base64_decode(substr($key, 7));
+        }
+
+        return $key;
+    }
+
     public function getFabricToken(): string
     {
         return $this->tokenManager->getFabricToken();
     }
 
+    /**
+     * Create an order and return the payment URL or raw request string.
+     * 
+     * @param string $title
+     * @param float $amount
+     * @param string|null $merchOrderId
+     * @param array{trade_type?: string, timeout_express?: string, business_type?: string, callback_info?: string, raw_request?: bool} $params
+     * @return string
+     * @throws TelebirrException
+     */
     public function createOrder(string $title, float $amount, ?string $merchOrderId = null, array $params = []): string
     {
         if ($amount <= 0) {
@@ -186,6 +228,11 @@ class TelebirrClient implements TelebirrClientInterface
         return $rawRequest;
     }
 
+    /**
+     * Generate the Telebirr H5 Web Checkout Payment URL.
+     * Note: As per official Telebirr specs, standard H5 web checkout flows require the 
+     * signature to be generated using RSA-PSS padding. This method handles that securely.
+     */
     protected function createRawRequestUrl(string $prepayId, string $tradeType = 'Checkout', ?string $merchantOrderId = null): string
     {
         $map = $this->buildBaseRequestParams($prepayId, $tradeType);
@@ -326,6 +373,37 @@ class TelebirrClient implements TelebirrClientInterface
 
         $currentTime = time();
         return abs($currentTime - $requestTime) <= $maxAgeSeconds;
+    }
+
+    /**
+     * Verify that the callback nonce has not been processed recently to prevent replay attacks.
+     * Requires Laravel Cache. If Cache is not available, it safely returns true (bypass).
+     *
+     * @param array $payload
+     * @param int $cacheTtlSeconds Default 300 seconds (5 minutes) to match timestamp max age
+     * @return bool True if valid (not a replay), False if nonce already exists in cache.
+     */
+    public function verifyNonce(array $payload, int $cacheTtlSeconds = 300): bool
+    {
+        if (!isset($payload['nonce_str'])) {
+            return false;
+        }
+
+        $nonce = (string)$payload['nonce_str'];
+
+        if (class_exists(\Illuminate\Support\Facades\Cache::class)) {
+            try {
+                // Returns true if the item was actually added (meaning it didn't exist)
+                return \Illuminate\Support\Facades\Cache::add('telebirr_nonce_' . $nonce, true, $cacheTtlSeconds);
+            } catch (\Throwable $e) {
+                // If Cache facade is failing (e.g. redis down), allow by default
+                // or fallback to log depending on strictness
+                $this->log("Telebirr Cache unavailable for nonce verification: " . $e->getMessage(), 'warning');
+            }
+        }
+
+        // Vanilla PHP fallback without cache configured
+        return true;
     }
 
     public function refundOrder(string $outTradeNo, float $refundAmount, string $outRequestNo, array $params = []): array

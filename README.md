@@ -94,6 +94,12 @@ YOUR_MERCHANT_PRIVATE_KEY_HERE
 -----END PRIVATE KEY-----"
 ```
 
+> [!TIP]
+> **Key Storage Flexibility**
+> To avoid multiline `.env` string issues, you can also store your keys as files or Base64 encoded strings:
+> - **File Path:** `TELEBIRR_PRIVATE_KEY="file:///var/www/keys/private_key.pem"`
+> - **Base64:** `TELEBIRR_PRIVATE_KEY="base64:LS0tLS1CRUdJTiBQUk..."`
+
 ### 3. Usage inside Laravel Controllers
 
 ```php
@@ -156,6 +162,12 @@ class TelebirrPaymentController extends Controller
             if (!Telebirr::verifyCallbackTimestamp($payload)) {
                 Log::warning('Telebirr Webhook Timestamp Expired or Missing!');
                 return response('request expired', 403);
+            }
+
+            // Deduplicate the request using the nonce
+            if (!Telebirr::verifyNonce($payload)) {
+                Log::warning('Telebirr Webhook Nonce already processed (Replay attempt)!');
+                return response('request already processed', 403);
             }
 
             $tradeStatus = $request->input('trade_status');
@@ -306,6 +318,21 @@ The Telebirr Gateway utilizes a complex dual signing architecture. Our `Signatur
 3. **Web Paygate Redirect URL Signature:** Uses **RSA-PKCS1 Padding** on the web payload variables (`appid`, `merch_code`, `nonce_str`, `prepay_id`, `timestamp`, `sign_type`), while leaving structural parameters like `version` and `trade_type` appended to the URL securely.
 
 This SDK dynamically abstracts all these complexities via `phpseclib3`.
+
+---
+
+## 🛡️ Security Best Practices
+
+When integrating payments, please follow these critical guidelines:
+
+1. **Replay Attack Mitigation (Nonces & Timestamps):**
+   Telebirr webhooks can theoretically be captured and replayed by malicious actors. Always use both `$telebirr->verifyCallbackTimestamp($payload)` (ensures the request isn't stale) and `$telebirr->verifyNonce($payload)` (uses Laravel Cache to guarantee the unique `nonce_str` hasn't been seen recently) before processing a webhook.
+   
+2. **Idempotency:**
+   Ensure your database logic is idempotent. If a webhook for `merch_order_id = '12345'` arrives, check if it is already marked as paid before granting value again.
+   
+3. **Key Storage:**
+   Never hardcode private keys in your source code. Use the `file:///path/to/key.pem` or `base64:...` approach within your `.env` to prevent multiline string parsing bugs across different server environments.
 
 ---
 ## Default endpoints used by the library:

@@ -35,8 +35,13 @@ class TestCase extends Orchestra
         $app['config']->set('telebirr.return_url', 'https://example.com/return');
         $app['config']->set('telebirr.ssl_verify', false);
         
-        // Generate temporary test keys using phpseclib to avoid Windows OpenSSL config issues
-        // Use 1024 bits to speed up tests (2048 is slow for every test)
+        /**
+         * @internal 
+         * @warning DO NOT USE THIS IN PRODUCTION. 
+         * 1024-bit RSA keys are generated here on-the-fly strictly to accelerate the test suite. 
+         * Production Telebirr environments strictly require 2048-bit (or higher) RSA keys generated 
+         * using the official Ethio Telecom tool.
+         */
         static $privateKeyCache = null;
         static $publicKeyCache = null;
 

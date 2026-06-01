@@ -11,15 +11,17 @@ class TokenManager
     protected TelebirrHttpClient $client;
     protected string $fabricAppId;
     protected string $appSecret;
+    protected string $merchantAppId;
 
     protected static ?string $memoryToken = null;
     protected static ?int $memoryTokenExpiry = null;
 
-    public function __construct(TelebirrHttpClient $client, string $fabricAppId, string $appSecret)
+    public function __construct(TelebirrHttpClient $client, string $fabricAppId, string $appSecret, string $merchantAppId = '')
     {
         $this->client = $client;
         $this->fabricAppId = $fabricAppId;
         $this->appSecret = $appSecret;
+        $this->merchantAppId = $merchantAppId;
     }
 
     /**
@@ -31,7 +33,7 @@ class TokenManager
      */
     public function getFabricToken(): string
     {
-        $cacheKey = 'telebirr_fabric_token_' . md5($this->fabricAppId);
+        $cacheKey = 'telebirr_fabric_token_' . md5($this->fabricAppId . '|' . $this->merchantAppId);
         
         $useLaravelCache = false;
         try {
