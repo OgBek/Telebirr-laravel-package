@@ -26,6 +26,17 @@ class TelebirrHttpClient
         $this->baseUrl = rtrim($baseUrl, '/');
         $this->verifySsl = $verifySsl;
         $this->timeout = $timeout;
+
+        try {
+            if (class_exists(\Illuminate\Support\Facades\Http::class)) {
+                // Check if the facade root is resolvable (throws if not bound)
+                \Illuminate\Support\Facades\Http::getFacadeRoot();
+                $this->useLaravelHttp = true;
+            }
+        } catch (\Throwable $e) {
+            // Not a fully booted Laravel environment, fallback to Guzzle
+            $this->useLaravelHttp = false;
+        }
     }
 
     /**

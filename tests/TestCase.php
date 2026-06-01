@@ -35,15 +35,19 @@ class TestCase extends Orchestra
         $app['config']->set('telebirr.return_url', 'https://example.com/return');
         $app['config']->set('telebirr.ssl_verify', false);
         
-        // Generate temporary test keys
-        $res = openssl_pkey_new([
-            "private_key_bits" => 2048,
-            "private_key_type" => OPENSSL_KEYTYPE_RSA,
-        ]);
-        
-        openssl_pkey_export($res, $privateKey);
-        $publicKeyDetails = openssl_pkey_get_details($res);
-        $publicKey = $publicKeyDetails['key'];
+        // Generate temporary test keys using phpseclib to avoid Windows OpenSSL config issues
+        // Use 1024 bits to speed up tests (2048 is slow for every test)
+        static $privateKeyCache = null;
+        static $publicKeyCache = null;
+
+        if (!$privateKeyCache) {
+            $key = \phpseclib3\Crypt\RSA::createKey(1024);
+            $privateKeyCache = $key->toString('PKCS1');
+            $publicKeyCache = $key->getPublicKey()->toString('PKCS8');
+        }
+
+        $privateKey = $privateKeyCache;
+        $publicKey = $publicKeyCache;
 
         $app['config']->set('telebirr.public_key', $publicKey);
         $app['config']->set('telebirr.private_key', $privateKey);

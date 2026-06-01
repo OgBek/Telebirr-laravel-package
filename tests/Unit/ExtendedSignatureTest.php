@@ -216,15 +216,14 @@ class ExtendedSignatureTest extends TestCase
     public function test_mismatched_key_pair_fails_verification()
     {
         // Generate a completely different key pair
-        $otherRes = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
-        $otherDetails = openssl_pkey_get_details($otherRes);
-        $otherPublicKey = $otherDetails['key'];
+        $key = \phpseclib3\Crypt\RSA::createKey(1024);
+        $differentPublicKey = $key->getPublicKey()->toString('PKCS8');
 
         $params = ['merch_order_id' => 'ORDER-001'];
         $signature = $this->signatureService->signPSS($params, $this->privateKey);
         
         // Verify against a DIFFERENT public key — must fail
-        $this->assertFalse($this->signatureService->verifyPSS($params, $signature, $otherPublicKey));
+        $this->assertFalse($this->signatureService->verifyPSS($params, $signature, $differentPublicKey));
     }
 
     public function test_pkcs1_invalid_private_key_throws_signature_exception()
