@@ -43,8 +43,8 @@ class TelebirrClient implements TelebirrClientInterface
         $this->fabricAppId = $config['fabric_app_id'] ?? '';
         $this->merchantAppId = $config['merchant_app_id'] ?? '';
         $this->merchantCode = $config['merchant_code'] ?? '';
-        $this->privateKey = $this->resolveKey($config['private_key'] ?? '');
-        $this->publicKey = $this->resolveKey($config['public_key'] ?? '');
+        $this->privateKey = $this->resolveKey($config['private_key'] ?? '', 'PRIVATE');
+        $this->publicKey = $this->resolveKey($config['public_key'] ?? '', 'PUBLIC');
         $this->notifyUrl = $config['notify_url'] ?? '';
         $this->returnUrl = $config['return_url'] ?? '';
         $this->logger = $logger;
@@ -61,9 +61,10 @@ class TelebirrClient implements TelebirrClientInterface
      * Resolves a cryptographic key from a file path, base64 string, or raw string.
      * 
      * @param string $key
+     * @param string $type
      * @return string
      */
-    protected function resolveKey(string $key): string
+    protected function resolveKey(string $key, string $type = 'PRIVATE'): string
     {
         $key = trim($key);
 
@@ -88,13 +89,6 @@ class TelebirrClient implements TelebirrClientInterface
 
         // If it's a raw base64 string without headers/footers, format it properly
         if (!str_contains($key, '-----BEGIN')) {
-            // Determine if it looks like a private or public key by its size or context
-            // A typical 2048-bit raw base64 private key is roughly 1600+ chars.
-            // A public key is usually ~390 chars. We will use a generic PUBLIC/PRIVATE wrapping
-            // based on the presence of typical public key characters or just default it.
-            // A better way is to pass the type if possible, but we can infer based on length.
-            $type = strlen($key) > 1000 ? 'PRIVATE' : 'PUBLIC';
-            
             $formattedKey = "-----BEGIN {$type} KEY-----\n";
             $formattedKey .= chunk_split($key, 64, "\n");
             $formattedKey .= "-----END {$type} KEY-----";
@@ -262,17 +256,32 @@ class TelebirrClient implements TelebirrClientInterface
      */
     protected function createRawRequestUrl(string $prepayId, string $tradeType = 'Checkout', ?string $merchantOrderId = null): string
     {
-        $map = $this->buildBaseRequestParams($prepayId, $tradeType);
+        $signMap = [
+            'appid' => $this->merchantAppId,
+            'merch_code' => $this->merchantCode,
+            'nonce_str' => $this->createNonceStr(),
+            'prepay_id' => $prepayId,
+            'timestamp' => $this->createTimeStamp()
+        ];
 
-        if ($merchantOrderId !== null) {
-            $map['merch_order_id'] = $merchantOrderId;
+        $sign = $this->signatureService->signPSS($signMap, $this->privateKey);
+
+        $urlMap = $signMap;
+        $urlMap['sign_type'] = 'SHA256WithRSA';
+
+        if ($tradeType === 'Checkout') {
+            $urlMap['version'] = '1.0';
+            $urlMap['trade_type'] = $tradeType;
         }
 
-        $sign = $this->signatureService->signPSS($map, $this->privateKey);
-        $map['sign'] = $sign;
+        if ($merchantOrderId !== null) {
+            $urlMap['merch_order_id'] = $merchantOrderId;
+        }
+
+        $urlMap['sign'] = $sign;
 
         $rawRequestArray = [];
-        foreach ($map as $key => $value) {
+        foreach ($urlMap as $key => $value) {
             $rawRequestArray[] = $key . "=" . urlencode((string)$value);
         }
         
@@ -281,67 +290,61 @@ class TelebirrClient implements TelebirrClientInterface
         $webBaseUrl = rtrim($this->webUrl, '?') . '?';
         $paymentUrl = $webBaseUrl . $rawRequest;
         
-        $this->log("Telebirr H5 URL Generated: " . $paymentUrl);
+        $this->log("Telebirr H5 URL Generated for prepay_id: " . $prepayId);
         
         return $paymentUrl;
     }
 
     public function verifyPayment(string $merchantOrderId): array
     {
-        try {
-            $token = $this->getFabricToken();
-            $nonce = $this->createNonceStr();
-            $timestamp = $this->createTimeStamp();
+        $token = $this->getFabricToken();
+        $nonce = $this->createNonceStr();
+        $timestamp = $this->createTimeStamp();
 
-            $bizContent = [
-                'appid' => $this->merchantAppId,
-                'merch_code' => $this->merchantCode,
-                'merch_order_id' => $merchantOrderId,
-            ];
+        $bizContent = [
+            'appid' => $this->merchantAppId,
+            'merch_code' => $this->merchantCode,
+            'merch_order_id' => $merchantOrderId,
+        ];
 
-            $requestParams = [
-                'nonce_str' => $nonce,
-                'method' => 'payment.queryorder',
-                'timestamp' => $timestamp,
-                'version' => '1.0',
-                'biz_content' => $bizContent,
-                'sign_type' => 'SHA256WithRSA',
-            ];
+        $requestParams = [
+            'nonce_str' => $nonce,
+            'method' => 'payment.queryorder',
+            'timestamp' => $timestamp,
+            'version' => '1.0',
+            'biz_content' => $bizContent,
+            'sign_type' => 'SHA256WithRSA',
+        ];
 
-            $requestParams['sign'] = $this->signatureService->signPSS($requestParams, $this->privateKey);
-            
-            $response = $this->httpClient->post(
-                '/payment/v1/merchant/queryOrder',
-                json_encode($requestParams, JSON_UNESCAPED_SLASHES),
-                [
-                    'Authorization' => $token,
-                    'X-APP-Key' => $this->fabricAppId,
-                ]
-            );
+        $requestParams['sign'] = $this->signatureService->signPSS($requestParams, $this->privateKey);
+        
+        $response = $this->httpClient->post(
+            '/payment/v1/merchant/queryOrder',
+            json_encode($requestParams, JSON_UNESCAPED_SLASHES),
+            [
+                'Authorization' => $token,
+                'X-APP-Key' => $this->fabricAppId,
+            ]
+        );
 
-            if (isset($response['biz_content'])) {
-                $biz = $response['biz_content'];
-                $orderStatus = $biz['trade_status'] ?? $biz['order_status'] ?? $biz['result'] ?? 'unknown';
-                
-                return [
-                    'success' => true,
-                    'status' => strtolower($orderStatus),
-                    'raw_response' => $response
-                ];
+        if (isset($response['sign'])) {
+            if (!$this->verifyCallbackSignature($response, $response['sign'])) {
+                throw new TelebirrException("Telebirr response signature verification failed.");
             }
+        }
 
+        if (isset($response['biz_content'])) {
+            $biz = $response['biz_content'];
+            $orderStatus = $biz['trade_status'] ?? $biz['order_status'] ?? $biz['result'] ?? 'unknown';
+            
             return [
-                'success' => false,
-                'message' => 'Telebirr query failed, biz_content missing.'
-            ];
-
-        } catch (\Throwable $e) {
-            $this->log('Telebirr Query Order Exception: ' . $e->getMessage(), 'error');
-            return [
-                'success' => false,
-                'message' => $e->getMessage()
+                'success' => true,
+                'status' => strtolower($orderStatus),
+                'raw_response' => $response
             ];
         }
+
+        throw new TelebirrServerException('Telebirr query failed, biz_content missing.', $response['code'] ?? '', $response['msg'] ?? '');
     }
 
     public function initiatePayment(string $orderId, float $amount, string $subject, array $customerInfo = []): array
@@ -404,13 +407,14 @@ class TelebirrClient implements TelebirrClientInterface
 
     /**
      * Verify that the callback nonce has not been processed recently to prevent replay attacks.
-     * Requires Laravel Cache. If Cache is not available, it safely returns true (bypass).
+     * Requires Laravel Cache. If Cache is not available, it safely returns true (bypass) or throws if strict.
      *
      * @param array $payload
      * @param int $cacheTtlSeconds Default 300 seconds (5 minutes) to match timestamp max age
+     * @param bool $strict If true, throws an exception if Cache is unavailable.
      * @return bool True if valid (not a replay), False if nonce already exists in cache.
      */
-    public function verifyNonce(array $payload, int $cacheTtlSeconds = 300): bool
+    public function verifyNonce(array $payload, int $cacheTtlSeconds = 300, bool $strict = true): bool
     {
         if (!isset($payload['nonce_str'])) {
             return false;
@@ -423,10 +427,15 @@ class TelebirrClient implements TelebirrClientInterface
                 // Returns true if the item was actually added (meaning it didn't exist)
                 return \Illuminate\Support\Facades\Cache::add('telebirr_nonce_' . $nonce, true, $cacheTtlSeconds);
             } catch (\Throwable $e) {
+                if ($strict) {
+                    throw new TelebirrException("Telebirr Cache unavailable for strict nonce verification.", 0, $e);
+                }
                 // If Cache facade is failing (e.g. redis down), allow by default
                 // or fallback to log depending on strictness
                 $this->log("Telebirr Cache unavailable for nonce verification: " . $e->getMessage(), 'warning');
             }
+        } elseif ($strict) {
+            throw new TelebirrException("Laravel Cache facade not found for strict nonce verification.");
         }
 
         // Vanilla PHP fallback without cache configured
@@ -447,65 +456,56 @@ class TelebirrClient implements TelebirrClientInterface
             throw new TelebirrException("Refund request ID cannot be empty.");
         }
 
-        try {
-            $token = $this->getFabricToken();
-            $nonce = $this->createNonceStr();
-            $timestamp = $this->createTimeStamp();
+        $token = $this->getFabricToken();
+        $nonce = $this->createNonceStr();
+        $timestamp = $this->createTimeStamp();
 
-            $bizContent = [
-                'appid' => $this->merchantAppId,
-                'merch_code' => $this->merchantCode,
-                'merch_order_id' => $outTradeNo,
-                'refund_amount' => number_format($refundAmount, 2, '.', ''),
-                'out_request_no' => $outRequestNo,
-                'refund_reason' => $params['refund_reason'] ?? 'Requested by customer'
-            ];
+        $bizContent = [
+            'appid' => $this->merchantAppId,
+            'merch_code' => $this->merchantCode,
+            'merch_order_id' => $outTradeNo,
+            'refund_amount' => number_format($refundAmount, 2, '.', ''),
+            'out_request_no' => $outRequestNo,
+            'refund_reason' => $params['refund_reason'] ?? 'Requested by customer'
+        ];
 
-            $requestParams = [
-                'nonce_str' => $nonce,
-                'method' => 'payment.refund',
-                'timestamp' => $timestamp,
-                'version' => '1.0',
-                'biz_content' => $bizContent,
-                'sign_type' => 'SHA256WithRSA',
-            ];
+        $requestParams = [
+            'nonce_str' => $nonce,
+            'method' => 'payment.refund',
+            'timestamp' => $timestamp,
+            'version' => '1.0',
+            'biz_content' => $bizContent,
+            'sign_type' => 'SHA256WithRSA',
+        ];
 
-            $requestParams['sign'] = $this->signatureService->signPSS($requestParams, $this->privateKey);
+        $requestParams['sign'] = $this->signatureService->signPSS($requestParams, $this->privateKey);
 
-            $this->log("Telebirr: Processing refund for {$outTradeNo}");
+        $this->log("Telebirr: Processing refund for {$outTradeNo}");
 
-            $response = $this->httpClient->post(
-                '/payment/v1/merchant/refund',
-                json_encode($requestParams, JSON_UNESCAPED_SLASHES),
-                [
-                    'Authorization' => $token,
-                    'X-APP-Key' => $this->fabricAppId,
-                ]
-            );
+        $response = $this->httpClient->post(
+            '/payment/v1/merchant/refund',
+            json_encode($requestParams, JSON_UNESCAPED_SLASHES),
+            [
+                'Authorization' => $token,
+                'X-APP-Key' => $this->fabricAppId,
+            ]
+        );
 
-            if (isset($response['biz_content'])) {
-                $biz = $response['biz_content'];
-                $status = $biz['trade_status'] ?? $biz['result'] ?? 'unknown';
-
-                return [
-                    'success' => in_array($status, ['SUCCESS', 'REFUND_SUCCESS']),
-                    'status' => strtolower($status),
-                    'raw_response' => $response
-                ];
+        if (isset($response['sign'])) {
+            if (!$this->verifyCallbackSignature($response, $response['sign'])) {
+                throw new TelebirrException("Telebirr response signature verification failed.");
             }
+        }
 
+        if (isset($response['biz_content'])) {
+            $biz = $response['biz_content'];
             return [
-                'success' => false,
-                'message' => 'Telebirr refund failed, biz_content missing.'
-            ];
-
-        } catch (\Throwable $e) {
-            $this->log('Telebirr Refund Order Exception: ' . $e->getMessage(), 'error');
-            return [
-                'success' => false,
-                'message' => $e->getMessage()
+                'success' => true,
+                'raw_response' => $response
             ];
         }
+
+        throw new TelebirrServerException('Telebirr refund failed, biz_content missing.', $response['code'] ?? '', $response['msg'] ?? '');
     }
 
     protected function createNonceStr(int $length = 32): string

@@ -13,8 +13,8 @@ class TokenManager
     protected string $appSecret;
     protected string $merchantAppId;
 
-    protected static ?string $memoryToken = null;
-    protected static ?int $memoryTokenExpiry = null;
+    protected static array $memoryTokens = [];
+    protected static array $memoryTokenExpiries = [];
 
     public function __construct(TelebirrHttpClient $client, string $fabricAppId, string $appSecret, string $merchantAppId = '')
     {
@@ -46,13 +46,19 @@ class TokenManager
         }
 
         if ($useLaravelCache) {
-            $cachedToken = \Illuminate\Support\Facades\Cache::get($cacheKey);
-            if ($cachedToken) {
-                return $cachedToken;
+            try {
+                $cachedToken = \Illuminate\Support\Facades\Cache::get($cacheKey);
+                if ($cachedToken) {
+                    return $cachedToken;
+                }
+            } catch (\Throwable $e) {
+                $useLaravelCache = false; // Fallback to memory if Cache fails
             }
-        } else {
-            if (self::$memoryToken && self::$memoryTokenExpiry > time()) {
-                return self::$memoryToken;
+        }
+        
+        if (!$useLaravelCache) {
+            if (isset(self::$memoryTokens[$cacheKey]) && self::$memoryTokenExpiries[$cacheKey] > time()) {
+                return self::$memoryTokens[$cacheKey];
             }
         }
 
@@ -69,10 +75,16 @@ class TokenManager
                 $ttlSeconds = 55 * 60;
 
                 if ($useLaravelCache) {
-                    \Illuminate\Support\Facades\Cache::put($cacheKey, $token, $ttlSeconds);
+                    try {
+                        \Illuminate\Support\Facades\Cache::put($cacheKey, $token, $ttlSeconds);
+                    } catch (\Throwable $e) {
+                        // If Cache write fails, fallback to memory
+                        self::$memoryTokens[$cacheKey] = $token;
+                        self::$memoryTokenExpiries[$cacheKey] = time() + $ttlSeconds;
+                    }
                 } else {
-                    self::$memoryToken = $token;
-                    self::$memoryTokenExpiry = time() + $ttlSeconds;
+                    self::$memoryTokens[$cacheKey] = $token;
+                    self::$memoryTokenExpiries[$cacheKey] = time() + $ttlSeconds;
                 }
 
                 return $token;
