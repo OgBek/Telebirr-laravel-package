@@ -140,7 +140,7 @@ class TelebirrHttpClient
         $attempts = 0;
         $lastException = null;
 
-        while ($attempts <= $this->maxRetries) {
+        while ($attempts < $this->maxRetries) {
             try {
                 if (!$this->guzzleClient) {
                     $this->guzzleClient = new Client();
@@ -155,7 +155,7 @@ class TelebirrHttpClient
             }
 
             $attempts++;
-            if ($attempts <= $this->maxRetries) {
+            if ($attempts < $this->maxRetries) {
                 usleep(100000 * (2 ** ($attempts - 1))); // Exponential backoff: 100ms, 200ms, 400ms...
             }
         }

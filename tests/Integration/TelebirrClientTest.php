@@ -208,16 +208,17 @@ class TelebirrClientTest extends TestCase
 
     // ─── Missing Data Edge Cases ─────────────────────────────────────
 
-    public function test_verify_payment_without_biz_content_returns_failure()
+    public function test_verify_payment_without_biz_content_throws_exception()
     {
         $this->mockTokenManager->shouldReceive('getFabricToken')->andReturn('t');
         $this->mockHttpClient->shouldReceive('post')->andReturn([
             'error' => 'some_random_error'
         ]);
 
-        $result = $this->telebirrClient->verifyPayment('o5');
-        $this->assertFalse($result['success']);
-        $this->assertEquals('Telebirr query failed, biz_content missing.', $result['message']);
+        $this->expectException(\Bekambeyene\Telebirr\Exceptions\TelebirrServerException::class);
+        $this->expectExceptionMessage('Telebirr query failed, biz_content missing.');
+
+        $this->telebirrClient->verifyPayment('o5');
     }
 
     public function test_create_order_missing_prepay_id_throws_exception()
