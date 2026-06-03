@@ -3,7 +3,7 @@
   
   # Telebirr PHP & Laravel SDK
   
-  *A fully-featured, secure, and modern PHP SDK for integrating Ethio Telecom's Telebirr SuperApp Payment Gateway.*
+  *A deterministic, secure, and production-hardened PHP SDK for integrating Ethio Telecom's Telebirr SuperApp Payment Gateway.*
 
   [![Latest Stable Version](https://img.shields.io/packagist/v/bekambeyene/telebirr?style=for-the-badge&color=blue)](https://packagist.org/packages/bekambeyene/telebirr)
   [![Total Downloads](https://img.shields.io/packagist/dt/bekambeyene/telebirr?style=for-the-badge&color=success)](https://packagist.org/packages/bekambeyene/telebirr)
@@ -13,23 +13,23 @@
 
 <br>
 
-This package has been thoroughly designed to prioritize **security** and **developer experience**, providing first-class integrations, facades, and configuration builders for **Laravel 10, 11, 12, and 13**, alongside robust support for Vanilla PHP environments.
+This package prioritizes **exact interoperability, determinism, and maintainability** to guarantee seamless operation in both Telebirr sandbox and production environments. It supports **Laravel 10, 11, 12, and 13**, alongside Vanilla PHP environments.
 
 ---
 
 ## ⚡ Key Features
 
-✨ **Enterprise-Grade Security**  
-- **Strict Webhook Verification:** Cryptographically validates incoming Telebirr webhooks to prevent spoofing and Man-in-the-Middle (MitM) attacks.
-- **Replay Attack Protection:** Built-in Nonce and Timestamp validation caching strictly rejects duplicated callback payloads.
-- **Smart Key Parsing:** Automatically detects and formats raw base64 PEM keys directly from your `.env` to prevent `phpseclib3` crashes.
+✨ **Production-Grade Webhook Handling**  
+- **Unified Webhook Verification:** Parse and verify incoming webhook requests automatically via `Telebirr::handleWebhook(Request $request)`.
+- **Clock Drift & Replay Protection:** Enforces strict validation of request age and tracks nonces via Laravel's cache (using the configured tolerance TTL) to shut down replay attacks.
 
-🚀 **Decentralized Architecture**  
-Built with single-responsibility services (`SignatureService`, `TokenManager`, `TelebirrHttpClient`) for clean integration and easy testing. Fallback multi-merchant memory isolation guarantees safe concurrent requests in Octane/Swoole.
+🚀 **Configurable Cryptography & Padding**  
+- **RSA-PSS Default Padding:** Preorder requests, H5 URLs, and webhook signatures default to modern RSA-PSS.
+- **Legacy PKCS#1 v1.5 Support:** Optionally switch padding modes via environment configuration for legacy request string flows or compatibility.
 
-🛠️ **Flexible Flow Support**  
-- **H5 / Web Checkout Flow:** Generate payment URLs seamlessly to redirect web clients.
-- **In-App Payment Flow:** Obtain raw request strings directly for integration inside mobile apps or WebViews.
+🛠 **Robust Canonicalization & Smart Keys**  
+- **Stable Sorting:** Recursively and deterministically sorts parameter structures, preventing PHP hash-order discrepancies.
+- **Robust Key Loading:** Automatically processes raw, base64-encoded, or file path PEM keys without crashing.
 
 ---
 
@@ -37,7 +37,7 @@ Built with single-responsibility services (`SignatureService`, `TokenManager`, `
 
 | Requirement | Supported Versions |
 | ----------- | ------------------ |
-| **PHP** | `^8.2` (Fully supports PHP 8.2, 8.3, and 8.4) |
+| **PHP** | `^8.2` (PHP 8.2, 8.3, and 8.4) |
 | **Laravel** | `^10.0`, `^11.0`, `^12.0`, `^13.0` |
 | **Extensions** | `openssl`, `curl`, `json` |
 
@@ -55,27 +55,22 @@ composer require bekambeyene/telebirr
 
 ## 🔑 Generating RSA Keys
 
-Telebirr requires asymmetric RSA keys to securely sign requests and verify payloads. If you don't have your keys yet, follow these steps to generate them using Ethio Telecom's official tools:
-
+Telebirr requires asymmetric RSA keys to sign requests and verify payloads.
 1. **Download the Sign Tool:** [Download Here](https://developer.ethiotelecom.et/developer_tools/static/download/SignTool.zip)
-2. **Generate the Key Pair:** Extract the `.zip` file, open the tool, and generate your RSA key pair.
-3. **Save your Keys:** You will receive a **Public Key** and a **Private Key**. Provide your Public Key to Telebirr via the Developer Portal, and keep the Private Key secure within your application.
+2. **Generate Key Pair:** Generate RSA keys. Provide your Public Key to Telebirr via the Developer Portal, and keep your Private Key private.
+3. **Smart Key Loading:** Paste the raw key base64 string directly in `.env`. The SDK automatically chunk-splits and formats it with standard PEM headers.
 
 ---
 
-## 🛠️ Laravel Integration
+## 🛠 Laravel Configuration & Integration
 
-Thanks to Laravel's Package Auto-Discovery, the Service Provider and `Telebirr` Facade are registered automatically.
-
-### 1. Publish Configuration
+Publish the configuration file:
 
 ```bash
 php artisan vendor:publish --tag="telebirr-config"
 ```
 
-### 2. Environment Configuration
-
-Add the following credentials to your `.env` file:
+Add your credentials to your `.env` file:
 
 ```env
 TELEBIRR_ENV=sandbox
@@ -85,31 +80,58 @@ TELEBIRR_APP_SECRET=your_app_secret
 TELEBIRR_MERCHANT_APP_ID=your_merchant_app_id
 TELEBIRR_MERCHANT_CODE=your_merchant_code
 TELEBIRR_NOTIFY_URL=https://yourdomain.com/payment/notify
+
+# Supports both redirect_url and return_url configurations (SDK normalizes both)
 TELEBIRR_RETURN_URL=https://yourdomain.com/payment/success
+
+# Cryptography Settings (pss or pkcs1)
+TELEBIRR_SIGNATURE_PADDING=pss
+
+# Webhook clock tolerance in seconds
+TELEBIRR_WEBHOOK_TOLERANCE_SECONDS=300
 ```
 
-> [!TIP]
-> **Smart Key Storage Flexibility**
-> To avoid multiline `.env` string issues, the SDK supports three ways to load keys:
-> 1. **Raw Base64:** Paste just the raw string! The SDK automatically calculates chunking and injects `-----BEGIN PRIVATE KEY-----` boundaries for you.
-> 2. **File Path:** `TELEBIRR_PRIVATE_KEY="file:///var/www/keys/private_key.pem"`
-> 3. **Base64 Strict:** `TELEBIRR_PRIVATE_KEY="base64:LS0tLS1CRUdJ..."`
+---
 
-### 3. Usage inside Laravel Controllers
+## ⚖ Correct Signing & Interoperability Rules
 
-> [!CAUTION]
-> **CSRF Middleware Exception Required!**
-> Telebirr sends webhooks directly from its servers via a `POST` request. It does not carry a Laravel CSRF token. If you place your webhook route in `routes/web.php` without an exception, Laravel will instantly block it with a **419 Page Expired** error.
-> 
-> **For Laravel 11+:** Open `bootstrap/app.php` and configure the exception:
-> ```php
-> ->withMiddleware(function (Middleware $middleware) {
->     $middleware->validateCsrfTokens(except: [
->         'payment/notification', // Replace with your exact route URI
->     ]);
-> })
-> ```
-> **For Laravel 10 and below:** Open `app/Http/Middleware/VerifyCsrfToken.php` and add your URI to the `$except` array.
+Different Telebirr endpoints use different signature generation rules:
+
+### 1. Preorder Request Signing
+Preorder requests (`payment.preorder`) compile top-level properties and recursively sort all parameters (including `biz_content` keys which are flattened and promoted to the root during canonicalization). Signatures use the configured padding (`pss` by default).
+
+### 2. H5 Web Checkout Checkout URL Signing
+When launching H5 web checkout redirects, Telebirr expects the URL signature to be calculated on **EXACTLY** 5 fields:
+- `appid`
+- `merch_code`
+- `nonce_str`
+- `prepay_id`
+- `timestamp`
+
+> [!WARNING]
+> Do **NOT** sign `version`, `trade_type`, `sign_type`, or `redirect_url`. These optional query parameters must be appended to the redirect URL *after* generating the signature. Adding them to the signed payload will cause intermittent signature failures (error `60200099`).
+
+### 3. URL Encoding Mechanics
+- **Canonical String:** The sorted key-value payload constructed for signature signing/verification is **never** URL-encoded.
+- **Redirection URL:** Query parameters appended to the H5 redirection URL must be URL-encoded (using `urlencode`) before the client is redirected.
+
+---
+
+## 🛠 Usage in Laravel
+
+### 1. CSRF Exception Required
+Telebirr sends webhooks directly via POST request. You must bypass CSRF verification for this endpoint.
+
+**Laravel 11+ (bootstrap/app.php):**
+```php
+->withMiddleware(function (Middleware $middleware) {
+    $middleware->validateCsrfTokens(except: [
+        'payment/notification', // Adjust to your route path
+    ]);
+})
+```
+
+### 2. Controller Implementation
 
 ```php
 <?php
@@ -120,72 +142,61 @@ use Illuminate\Http\Request;
 use Bekambeyene\Telebirr\Facades\Telebirr;
 use Bekambeyene\Telebirr\Exceptions\TelebirrException;
 use Bekambeyene\Telebirr\Exceptions\TelebirrServerException;
+use Bekambeyene\Telebirr\Exceptions\InvalidSignatureException;
+use Bekambeyene\Telebirr\Exceptions\TimestampExpiredException;
+use Bekambeyene\Telebirr\Exceptions\ReplayAttackException;
 use Illuminate\Support\Facades\Log;
 
 class TelebirrPaymentController extends Controller
 {
     /**
-     * Start payment checkout flow
+     * Redirect to Telebirr Checkout
      */
-    public function initiateCheckout(Request $request)
+    public function checkout(Request $request)
     {
-        $request->validate([
-            'amount' => 'required|numeric|min:1',
-            'title' => 'required|string|max:100',
-        ]);
-
         try {
-            // Generate the payment redirect URL for H5 Checkout
-            $paymentUrl = Telebirr::createOrder(
-                $request->input('title'),
-                $request->input('amount')
-            );
-
+            $paymentUrl = Telebirr::createOrder('Premium Subscription', 250.00);
             return redirect()->away($paymentUrl);
         } catch (TelebirrServerException $e) {
-            // Handled safely: e.g. Telebirr is under maintenance (code 60200087)
-            Log::error('Telebirr Servers are busy: ' . $e->getMessage());
-            return back()->with('error', 'Telebirr payment gateway is currently busy. Please try again later.');
+            // Gracefully catch Telebirr busy/sync status issues
+            Log::warning('Telebirr server status exception: ' . $e->getMessage());
+            return back()->with('error', 'Telebirr payment services are currently busy. Please try again in a few moments.');
         } catch (TelebirrException $e) {
-            Log::error('Telebirr Payment Config Error: ' . $e->getMessage());
-            return back()->with('error', 'Unable to initiate payment.');
+            Log::error('Telebirr config error: ' . $e->getMessage());
+            return back()->with('error', 'Failed to initiate payment.');
         }
     }
 
     /**
-     * Handle payment notification callback (Webhook) from Telebirr
+     * Handle incoming Telebirr Webhook
      */
-    public function handleNotification(Request $request)
+    public function handleWebhook(Request $request)
     {
         try {
-            $payload = $request->except('sign');
-            $signature = $request->input('sign');
+            // Automatically validates signature, timestamp fresh window, and checks duplicate nonces
+            $payload = Telebirr::handleWebhook($request);
 
-            // 1. Securely verify the RSA-PSS webhook signature
-            if (!Telebirr::verifyCallbackSignature($payload, $signature)) {
-                return response('invalid signature', 403);
-            }
+            // Process order securely (e.g. mark paid)
+            $orderId = $payload['merch_order_id'];
+            $status = $payload['trade_status'];
 
-            // 2. Protect against replay attacks by validating the timestamp
-            if (!Telebirr::verifyCallbackTimestamp($payload)) {
-                return response('request expired', 403);
-            }
-
-            // 3. Deduplicate the request using the nonce
-            if (!Telebirr::verifyNonce($payload, 300, strict: true)) {
-                return response('request already processed', 403);
-            }
-
-            $tradeStatus = $request->input('trade_status');
-            
-            if ($tradeStatus === 'PAY_SUCCESS') {
-                // Securely process order!
+            if ($status === 'PAY_SUCCESS') {
+                // Activate service...
             }
 
             return response('success');
 
+        } catch (InvalidSignatureException $e) {
+            Log::error('Webhook Invalid Signature: ' . $e->getMessage());
+            return response('invalid signature', 403);
+        } catch (TimestampExpiredException $e) {
+            Log::error('Webhook Request Expired (stale timestamp): ' . $e->getMessage());
+            return response('request expired', 403);
+        } catch (ReplayAttackException $e) {
+            Log::error('Replay Attack detected: ' . $e->getMessage());
+            return response('request already processed', 409);
         } catch (\Exception $e) {
-            Log::error('Telebirr Webhook Parsing Error: ' . $e->getMessage());
+            Log::error('Webhook handling failed: ' . $e->getMessage());
             return response('error', 500);
         }
     }
@@ -194,61 +205,27 @@ class TelebirrPaymentController extends Controller
 
 ---
 
-## 🐘 Vanilla PHP Integration
+## 🔍 Troubleshooting Common Errors
 
-You can easily use the SDK in native PHP applications without Laravel.
+### `60200099 Verify the sign field failed`
+This error means the public key on Telebirr's server cannot verify the signature generated by your private key.
+- **Signed Field List:** Check that H5 signatures only include the 5 required fields. The SDK enforces this automatically.
+- **Padding Mode mismatch:** Telebirr production requires `pss` (RSA-PSS) padding. Ensure `TELEBIRR_SIGNATURE_PADDING` matches your gateway settings.
+- **Accidental double encoding:** Ensure you do not URL-encode the parameters twice when formatting query strings.
+- **Raw key format:** Ensure your private key matches the public key uploaded to the Telebirr developer portal.
 
-```php
-<?php
-
-require 'vendor/autoload.php';
-
-use Bekambeyene\Telebirr\TelebirrClient;
-use Bekambeyene\Telebirr\Services\TokenManager;
-use Bekambeyene\Telebirr\Services\SignatureService;
-use Bekambeyene\Telebirr\Services\TelebirrHttpClient;
-
-$config = [
-    'environment' => 'sandbox',
-    'fabric_app_id' => 'your_fabric_app_id',
-    'app_secret' => 'your_app_secret',
-    'merchant_app_id' => 'your_merchant_app_id',
-    'merchant_code' => 'your_merchant_code',
-    'notify_url' => 'https://yourdomain.com/payment/notify',
-    'return_url' => 'https://yourdomain.com/payment/success',
-    'public_key' => '...',
-    'private_key' => '...'
-];
-
-$httpClient = new TelebirrHttpClient($config['base_url'], true);
-$tokenManager = new TokenManager($httpClient, $config['fabric_app_id'], $config['app_secret']);
-$signatureService = new SignatureService();
-
-$telebirr = new TelebirrClient($config, $tokenManager, $signatureService, $httpClient);
-
-$paymentUrl = $telebirr->createOrder('Standard Plan Subscription', 250.00);
-header('Location: ' . $paymentUrl);
-exit;
-```
+### `60200087 Organization does not exist`
+- This status indicates the Telebirr gateway/merchant sync services are busy, down, or undergoing synchronization. Always catch `TelebirrServerException` and prompt users to retry.
 
 ---
 
-## 🛡️ Security Best Practices
+## 🛡 Production Best Practices
 
-When integrating payments, please follow these critical guidelines:
-
-1. **Replay Attack Mitigation (Nonces & Timestamps):**
-   Telebirr webhooks can theoretically be captured and replayed. Always use both `$telebirr->verifyCallbackTimestamp($payload)` (ensures the request isn't stale) and `$telebirr->verifyNonce($payload, strict: true)` (uses Laravel Cache to guarantee the unique `nonce_str` hasn't been seen recently) before processing a webhook.
-   
-2. **Handle Telebirr Service Outages Gracefully:**
-   During Ethio Telecom sandbox maintenance, you might encounter `Organization does not exist` errors (Code `60200087`). Catch `TelebirrServerException` explicitly to show a friendly "Try again later" message to your users instead of crashing.
+- **Clock Synchronization (NTP):** Ensure clock synchronization is enabled on your production servers. Webhook timestamp verification relies on synchronized times.
+- **Idempotency & Database Locks:** Acquire database locks on transactions during callback handling to prevent duplicate order allocation if a webhook triggers concurrently.
+- **Sandbox vs Production Differences:** Sandboxes are often more permissive than production systems. Always test your signature configurations in both systems.
 
 ---
-
-## 🔗 Links
-
-- [Telebirr Developer Portal](https://developer.ethiotelecom.et/)
-- [Telebirr H5 C2B Integration Guide](https://developer.ethiotelecom.et/docs/H5%20C2B%20Web%20Payment%20Integration%20Quick%20Guide/requestCreateOrder)
 
 ## 📄 License
 
