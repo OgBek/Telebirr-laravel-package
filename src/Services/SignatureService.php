@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Bekambeyene\Telebirr\Services;
 
 use Bekambeyene\Telebirr\Exceptions\SignatureException;
+use Bekambeyene\Telebirr\Exceptions\TelebirrException;
 use phpseclib3\Crypt\RSA;
 
 class SignatureService
@@ -82,6 +83,33 @@ class SignatureService
     }
 
     /**
+     * Resolve the key from a file path or raw string.
+     *
+     * @param string $key
+     * @return string
+     * @throws TelebirrException
+     */
+    private function resolveKey(string $key): string
+    {
+        if (str_starts_with($key, 'file://')) {
+            $path = substr($key, 7);
+
+            if (!is_file($path) || !is_readable($path)) {
+                throw new TelebirrException("Unable to load Telebirr key file: {$path}");
+            }
+
+            $content = file_get_contents($path);
+            if ($content === false || trim($content) === '') {
+                throw new TelebirrException("Unable to load Telebirr key file: {$path}");
+            }
+
+            return $content;
+        }
+
+        return str_replace('\n', PHP_EOL, $key);
+    }
+
+    /**
      * Sign the parameters using RSA-PSS.
      *
      * @param array $params
@@ -94,7 +122,7 @@ class SignatureService
         try {
             $canonicalString = $this->buildCanonicalString($params);
 
-            $rsa = RSA::load($privateKey)
+            $rsa = RSA::load($this->resolveKey($privateKey))
                 ->withHash('sha256')
                 ->withMGFHash('sha256')
                 ->withSaltLength(32);
@@ -120,7 +148,7 @@ class SignatureService
         try {
             $canonicalString = $this->buildCanonicalString($params);
 
-            $rsa = RSA::load($privateKey)
+            $rsa = RSA::load($this->resolveKey($privateKey))
                 ->withHash('sha256')
                 ->withPadding(RSA::SIGNATURE_PKCS1);
 
@@ -146,7 +174,7 @@ class SignatureService
         try {
             $canonicalString = $this->buildCanonicalString($params);
 
-            $rsa = RSA::loadPublicKey($publicKey)
+            $rsa = RSA::loadPublicKey($this->resolveKey($publicKey))
                 ->withHash('sha256')
                 ->withMGFHash('sha256')
                 ->withSaltLength(32);
@@ -171,7 +199,7 @@ class SignatureService
         try {
             $canonicalString = $this->buildCanonicalString($params);
 
-            $rsa = RSA::loadPublicKey($publicKey)
+            $rsa = RSA::loadPublicKey($this->resolveKey($publicKey))
                 ->withHash('sha256')
                 ->withPadding(RSA::SIGNATURE_PKCS1);
 
