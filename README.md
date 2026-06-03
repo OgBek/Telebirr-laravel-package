@@ -13,7 +13,7 @@
 
 <br>
 
-This package solves the complex implementation details of Ethiopia's payment gateway. It prioritizes exact interoperability, determinism, and maintainability to guarantee seamless operation in both Telebirr sandbox and production environments. It supports Laravel 10, 11, 12, and 13, alongside Vanilla PHP environments.
+This package solves the complex implementation details of Ethiopia's payment gateway. It prioritizes exact interoperability, determinism, and maintainability to guarantee seamless operation in both Telebirr sandbox and production environments. It supports Laravel 11, 12, and 13, alongside Vanilla PHP environments.
 
 ---
 
@@ -129,10 +129,10 @@ class PaymentController extends Controller
 > 🚨 **<span style="color:red">CSRF Middleware Exception Required!</span>**
 > Telebirr sends webhooks directly from its servers via a POST request. It does not carry a Laravel CSRF token. If you place your webhook route in `routes/web.php` without an exception, Laravel will instantly block it with a 419 Page Expired error.
 > 
-> **For Laravel 11+:** In `bootstrap/app.php`:
+> **For Laravel 11 and above:** In `bootstrap/app.php`:
 > `$middleware->validateCsrfTokens(except: ['payment/notification']);`
 >
-> **For Laravel 10 and lower:** In `app/Http/Middleware/VerifyCsrfToken.php`:
+> **For older projects (Laravel 10 and lower):** In `app/Http/Middleware/VerifyCsrfToken.php`:
 > `protected $except = ['payment/notification'];`
 
 ```php
