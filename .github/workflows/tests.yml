@@ -23,8 +23,13 @@ jobs:
           extensions: dom, curl, libxml, mbstring, zip, openssl
           coverage: none
 
-      - name: Install dependencies
+      - name: Install dependencies and Larastan dynamically
         run: |
+          if [[ "${{ matrix.laravel }}" == "10.*" ]]; then
+            composer require --dev "larastan/larastan:^2.0" --no-update
+          else
+            composer require --dev "larastan/larastan:^3.0" --no-update
+          fi
           composer update --prefer-dist --no-interaction
 
       - name: Execute Static Analysis (PHPStan)
