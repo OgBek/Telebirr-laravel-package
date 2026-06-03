@@ -1,6 +1,23 @@
 {
     "name": "bekambeyene/telebirr",
-    "description": "Telebirr payment gateway integration for PHP and Laravel 10, 11, 12, and 13.",
+    "description": "A Laravel and PHP SDK for Telebirr H5/SuperApp integration with webhook verification, RSA signing, and production-ready interoperability support.",
+    "keywords": [
+        "telebirr",
+        "laravel",
+        "php",
+        "payment-gateway",
+        "ethiopia",
+        "h5-payment",
+        "superapp",
+        "webhook",
+        "rsa",
+        "sdk"
+    ],
+    "homepage": "https://github.com/bekambeyene/telebirr",
+    "support": {
+        "issues": "https://github.com/bekambeyene/telebirr/issues",
+        "source": "https://github.com/bekambeyene/telebirr"
+    },
     "type": "library",
     "license": "MIT",
     "authors": [
