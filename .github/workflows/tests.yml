@@ -9,6 +9,9 @@ jobs:
       matrix:
         php: [8.2, 8.3]
         laravel: [10.*, 11.*, 12.*, 13.*]
+        exclude:
+          - php: 8.2
+            laravel: 13.*
 
     name: P-${{ matrix.php }} - L-${{ matrix.laravel }}
 
