@@ -25,9 +25,9 @@ jobs:
 
       - name: Install dependencies and Larastan dynamically
         run: |
-          if [[ "${{ matrix.laravel }}" == "10.*" ]]; then
+          if [[ "${{ matrix.laravel }}" == "10."* ]]; then
             composer require --dev "larastan/larastan:^2.0" --no-update
-          elif [[ "${{ matrix.laravel }}" == "11.*" || "${{ matrix.laravel }}" == "12.*" || "${{ matrix.laravel }}" == "13.*" ]]; then
+          else
             composer require --dev "larastan/larastan:^3.0" --no-update
           fi
           composer update --prefer-dist --no-interaction --with-all-dependencies
