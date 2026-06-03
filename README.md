@@ -85,11 +85,9 @@ TELEBIRR_SIGNATURE_PADDING=pss
 
 Below is the recommended controller code you should use when integrating our package.
 
-```
+```php
 <?php
-
 namespace App\Http\Controllers;
-
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Bekambeyene\Telebirr\Facades\Telebirr;
@@ -198,12 +196,11 @@ class PaymentController extends Controller
         ]);
     }
 }
-
 ```
 
 ---
 ## routes/web.php  example
-```
+```php
 Route::get('/',  [PaymentController::class, 'showForm'])->name('payment.form');
 Route::post('/payment/checkout',     [PaymentController::class, 'checkout'])->name('payment.checkout');
 Route::post('/payment/notification', [PaymentController::class, 'notification'])->name('payment.notification');
