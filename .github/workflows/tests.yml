@@ -28,7 +28,7 @@ jobs:
           if [[ "${{ matrix.laravel }}" == "10."* ]]; then
             composer require --dev "larastan/larastan:^2.0" --no-update
           else
-            composer require --dev "larastan/larastan:^3.0" --no-update
+            composer require --dev "larastan/larastan:^3.0" "illuminate/testing" --no-update
           fi
           composer update --prefer-dist --no-interaction --with-all-dependencies
 
