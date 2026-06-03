@@ -44,6 +44,15 @@ interface TelebirrClientInterface
     public function initiatePayment(string $orderId, float $amount, string $subject, array $customerInfo = []): array;
 
     /**
+     * Handle incoming webhook callback from Telebirr.
+     * Automatically verifies signature, timestamp freshness, and checks for replay attacks.
+     *
+     * @param \Illuminate\Http\Request $request
+     * @return array Verified and cleaned payload array
+     */
+    public function handleWebhook(\Illuminate\Http\Request $request): array;
+
+    /**
      * Verify the signature of an incoming webhook payload.
      *
      * @param array $payload
@@ -67,9 +76,10 @@ interface TelebirrClientInterface
      *
      * @param array $payload
      * @param int $cacheTtlSeconds Default 300 seconds (5 minutes) to match timestamp max age
+     * @param bool $strict If true, throws an exception if Cache is unavailable.
      * @return bool True if valid (not a replay), False if nonce already exists in cache.
      */
-    public function verifyNonce(array $payload, int $cacheTtlSeconds = 300): bool;
+    public function verifyNonce(array $payload, int $cacheTtlSeconds = 300, bool $strict = true): bool;
 
     /**
      * Request a refund for an existing order.

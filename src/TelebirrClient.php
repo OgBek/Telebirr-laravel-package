@@ -25,6 +25,8 @@ class TelebirrClient implements TelebirrClientInterface
     protected string $publicKey;
     protected string $notifyUrl;
     protected string $returnUrl;
+    protected string $padding;
+    protected int $webhookToleranceSeconds;
     /** @var callable|null */
     protected $logger;
 
@@ -46,7 +48,12 @@ class TelebirrClient implements TelebirrClientInterface
         $this->privateKey = $this->resolveKey($config['private_key'] ?? '', 'PRIVATE');
         $this->publicKey = $this->resolveKey($config['public_key'] ?? '', 'PUBLIC');
         $this->notifyUrl = $config['notify_url'] ?? '';
-        $this->returnUrl = $config['return_url'] ?? '';
+        
+        // Normalize return_url and redirect_url, supporting both keys
+        $this->returnUrl = $config['return_url'] ?? $config['redirect_url'] ?? '';
+        
+        $this->padding = strtolower($config['padding'] ?? 'pss');
+        $this->webhookToleranceSeconds = (int)($config['webhook_tolerance_seconds'] ?? 300);
         $this->logger = $logger;
     }
 
@@ -168,7 +175,9 @@ class TelebirrClient implements TelebirrClientInterface
             'sign_type' => 'SHA256WithRSA',
         ];
 
-        $requestParams['sign'] = $this->signatureService->signPSS($requestParams, $this->privateKey);
+        $requestParams['sign'] = $this->padding === 'pkcs1'
+            ? $this->signatureService->signPKCS1($requestParams, $this->privateKey)
+            : $this->signatureService->signPSS($requestParams, $this->privateKey);
 
         $this->log("Telebirr: Creating order");
 
@@ -251,8 +260,16 @@ class TelebirrClient implements TelebirrClientInterface
 
     /**
      * Generate the Telebirr H5 Web Checkout Payment URL.
-     * Note: As per official Telebirr specs, standard H5 web checkout flows require the 
-     * signature to be generated using RSA-PSS padding. This method handles that securely.
+     *
+     * WARNING:
+     * Telebirr production interoperability depends on signing EXACTLY the 5 fields below.
+     * Do NOT include version, trade_type, sign_type, redirect_url, or any optional parameters
+     * in the signed payload. Doing so will trigger a signature verification failure (error 60200099)
+     * in the production environment.
+     *
+     * URL Encoding Clarification:
+     * - The canonical string passed to the signature service is NOT URL-encoded.
+     * - The final query parameters appended to the URL must be URL-encoded (urlencode) to be safe for transport.
      */
     protected function createRawRequestUrl(string $prepayId, string $tradeType = 'Checkout', ?string $merchantOrderId = null): string
     {
@@ -264,7 +281,10 @@ class TelebirrClient implements TelebirrClientInterface
             'timestamp' => $this->createTimeStamp()
         ];
 
-        $sign = $this->signatureService->signPSS($signMap, $this->privateKey);
+        // Sign the payload using the configured padding mode (PSS is the default and strongly recommended)
+        $sign = $this->padding === 'pkcs1'
+            ? $this->signatureService->signPKCS1($signMap, $this->privateKey)
+            : $this->signatureService->signPSS($signMap, $this->privateKey);
 
         $urlMap = $signMap;
         $urlMap['sign_type'] = 'SHA256WithRSA';
@@ -316,7 +336,9 @@ class TelebirrClient implements TelebirrClientInterface
             'sign_type' => 'SHA256WithRSA',
         ];
 
-        $requestParams['sign'] = $this->signatureService->signPSS($requestParams, $this->privateKey);
+        $requestParams['sign'] = $this->padding === 'pkcs1'
+            ? $this->signatureService->signPKCS1($requestParams, $this->privateKey)
+            : $this->signatureService->signPSS($requestParams, $this->privateKey);
         
         $response = $this->httpClient->post(
             '/payment/v1/merchant/queryOrder',
@@ -367,6 +389,56 @@ class TelebirrClient implements TelebirrClientInterface
     }
 
     /**
+     * Handle incoming webhook callback from Telebirr.
+     * Automatically verifies signature, timestamp freshness, and checks for replay attacks.
+     *
+     * @param \Illuminate\Http\Request $request
+     * @return array Verified and cleaned payload array
+     * @throws \Bekambeyene\Telebirr\Exceptions\InvalidSignatureException
+     * @throws \Bekambeyene\Telebirr\Exceptions\TimestampExpiredException
+     * @throws \Bekambeyene\Telebirr\Exceptions\ReplayAttackException
+     */
+    public function handleWebhook(\Illuminate\Http\Request $request): array
+    {
+        $payload = $request->all();
+
+        // Extract signature from payload or headers
+        $signature = $payload['sign'] ?? $payload['signature'] ?? $request->header('X-Sign') ?? $request->header('Signature') ?? '';
+
+        if (empty($signature)) {
+            $this->log("Webhook handling failed: Signature is missing.", "error", ['payload' => $payload]);
+            throw new Exceptions\InvalidSignatureException("Webhook signature is missing.");
+        }
+
+        $this->log("Webhook handling: Verifying signature.", "info", ['nonce' => $payload['nonce_str'] ?? null]);
+        if (!$this->verifyCallbackSignature($payload, $signature)) {
+            $this->log("Webhook handling failed: Signature verification failed.", "error");
+            throw new Exceptions\InvalidSignatureException("Webhook signature verification failed.");
+        }
+
+        $tolerance = $this->webhookToleranceSeconds;
+        if (!$this->verifyCallbackTimestamp($payload, $tolerance)) {
+            $this->log("Webhook handling failed: Timestamp expired.", "error", [
+                'timestamp' => $payload['timestamp'] ?? null,
+                'tolerance' => $tolerance
+            ]);
+            throw new Exceptions\TimestampExpiredException("Webhook request timestamp is expired or outside tolerance window.");
+        }
+
+        if (!$this->verifyNonce($payload, $tolerance, true)) {
+            $this->log("Webhook handling failed: Replay attack detected.", "error", ['nonce' => $payload['nonce_str'] ?? null]);
+            throw new Exceptions\ReplayAttackException("Duplicate request detected (nonce replay attack).");
+        }
+
+        // Clean signature parameters from payload
+        unset($payload['sign'], $payload['sign_type']);
+
+        $this->log("Webhook handling succeeded.", "info", ['merch_order_id' => $payload['merch_order_id'] ?? null]);
+
+        return $payload;
+    }
+
+    /**
      * Verify callback signature.
      * 
      * Security Note: To prevent replay attacks, you MUST validate that the 'timestamp' 
@@ -378,6 +450,9 @@ class TelebirrClient implements TelebirrClientInterface
             throw new TelebirrException("Public key is required to verify webhook signatures.");
         }
 
+        if ($this->padding === 'pkcs1') {
+            return $this->signatureService->verifyPKCS1($payload, $signature, $this->publicKey);
+        }
         return $this->signatureService->verifyPSS($payload, $signature, $this->publicKey);
     }
 
@@ -478,7 +553,9 @@ class TelebirrClient implements TelebirrClientInterface
             'sign_type' => 'SHA256WithRSA',
         ];
 
-        $requestParams['sign'] = $this->signatureService->signPSS($requestParams, $this->privateKey);
+        $requestParams['sign'] = $this->padding === 'pkcs1'
+            ? $this->signatureService->signPKCS1($requestParams, $this->privateKey)
+            : $this->signatureService->signPSS($requestParams, $this->privateKey);
 
         $this->log("Telebirr: Processing refund for {$outTradeNo}");
 

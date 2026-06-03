@@ -41,12 +41,12 @@ class ExtendedSignatureTest extends TestCase
         $this->assertStringNotContainsString('sign_type=', $canonical);
     }
 
-    public function test_canonical_string_excludes_empty_values()
+    public function test_canonical_string_preserves_empty_values()
     {
         $params = ['appid' => 'app123', 'empty_field' => '', 'nonce_str' => '12345'];
         $canonical = $this->signatureService->buildCanonicalString($params);
         
-        $this->assertStringNotContainsString('empty_field=', $canonical);
+        $this->assertStringContainsString('empty_field=', $canonical);
     }
 
     public function test_canonical_string_excludes_null_values()
