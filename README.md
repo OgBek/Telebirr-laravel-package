@@ -55,6 +55,7 @@ Add your credentials to your `.env` file:
 
 ```env
 TELEBIRR_ENV=sandbox
+TELEBIRR_SSL_VERIFY=false
 
 TELEBIRR_FABRIC_APP_ID=your_fabric_app_id
 TELEBIRR_APP_SECRET=your_app_secret
@@ -80,49 +81,137 @@ TELEBIRR_SIGNATURE_PADDING=pss
 
 ---
 
-## 📱 H5 Payment Controller Example
+##  H5 Payment Controller Example
 
 Below is the recommended controller code you should use when integrating our package.
 
-```php
+```
+<?php
+
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Bekambeyene\Telebirr\Facades\Telebirr;
 use Bekambeyene\Telebirr\Exceptions\TelebirrException;
 use Bekambeyene\Telebirr\Exceptions\TelebirrServerException;
-use Illuminate\Support\Facades\Log;
+use Bekambeyene\Telebirr\Exceptions\InvalidSignatureException;
+use Bekambeyene\Telebirr\Exceptions\TimestampExpiredException;
+use Bekambeyene\Telebirr\Exceptions\ReplayAttackException;
 
 class PaymentController extends Controller
 {
+    /**
+     * Show the checkout form (title + amount).
+     */
+    public function showForm()
+    {
+        return view('payment.form');
+    }
+
     /**
      * Initiate an H5 payment and redirect the user.
      */
     public function checkout(Request $request)
     {
+        $validated = $request->validate([
+            'title'  => ['required', 'string', 'min:1', 'max:64'],
+            'amount' => ['required', 'numeric', 'min:0.01'],
+        ]);
+
+        $title  = trim($validated['title']);
+        $amount = (float) $validated['amount'];
+
         try {
-            // Provide a clear subject, amount, and optionally a custom order ID
-            $paymentUrl = Telebirr::createOrder('Premium Subscription', 250.00, 'ORDER-' . uniqid());
-            
-            // Redirect the user to the generated H5 Telebirr Checkout URL
+            // Telebirr requires merch_order_id to match ^[A-Za-z0-9]+$ — no hyphens or underscores.
+            $merchOrderId = 'ORDER' . strtoupper(uniqid());
+
+            $paymentUrl = Telebirr::createOrder($title, $amount, $merchOrderId);
+
+            Log::info('Redirecting to Telebirr H5', [
+                'merch_order_id' => $merchOrderId,
+                'title'          => $title,
+                'amount'         => $amount,
+                'url_host'       => parse_url($paymentUrl, PHP_URL_HOST),
+            ]);
+
             return redirect()->away($paymentUrl);
-            
+
         } catch (TelebirrServerException $e) {
-            // 60200087: The Telebirr gateway is busy or syncing
             Log::warning('Telebirr server status exception: ' . $e->getMessage());
-            return back()->with('error', 'Telebirr payment services are currently busy. Please try again in a few moments.');
-            
+            return response()->view('payment.error', [
+                'title'   => 'Telebirr is busy',
+                'message' => 'Telebirr payment services are currently busy. Please try again in a few moments.',
+                'detail'  => $e->getMessage(),
+            ], 503);
         } catch (TelebirrException $e) {
-            // Configuration or generic SDK error
             Log::error('Telebirr config error: ' . $e->getMessage());
-            return back()->with('error', 'Failed to initiate payment.');
+            return response()->view('payment.error', [
+                'title'   => 'Payment failed',
+                'message' => 'Failed to initiate payment.',
+                'detail'  => $e->getMessage(),
+            ], 500);
         }
     }
+
+    /**
+     * Handle asynchronous webhook (notify_url) from Telebirr.
+     * Telebirr POSTs here after a payment attempt.
+     */
+    public function notification(Request $request)
+    {
+        try {
+            $payload = Telebirr::handleWebhook($request);
+
+            $merchOrderId = $payload['merch_order_id'] ?? null;
+            $tradeStatus  = $payload['trade_status'] ?? $payload['result'] ?? null;
+
+            Log::info('Telebirr webhook received', [
+                'merch_order_id' => $merchOrderId,
+                'trade_status'   => $tradeStatus,
+            ]);
+
+            return response('success', 200);
+
+        } catch (InvalidSignatureException $e) {
+            Log::error('Telebirr webhook signature invalid: ' . $e->getMessage());
+            return response('invalid signature', 400);
+        } catch (TimestampExpiredException $e) {
+            Log::error('Telebirr webhook timestamp expired: ' . $e->getMessage());
+            return response('expired', 400);
+        } catch (ReplayAttackException $e) {
+            Log::error('Telebirr webhook replay detected: ' . $e->getMessage());
+            return response('replay', 400);
+        } catch (TelebirrException $e) {
+            Log::error('Telebirr webhook error: ' . $e->getMessage());
+            return response('error', 400);
+        }
+    }
+
+    /**
+     * Browser redirect target after the user completes (or cancels) payment.
+     */
+    public function success(Request $request)
+    {
+        return response()->view('payment.success', [
+            'merch_order_id' => $request->query('merch_order_id'),
+        ]);
+    }
 }
+
 ```
 
 ---
+## routes/web.php  example
+```
+Route::get('/',  [PaymentController::class, 'showForm'])->name('payment.form');
+Route::post('/payment/checkout',     [PaymentController::class, 'checkout'])->name('payment.checkout');
+Route::post('/payment/notification', [PaymentController::class, 'notification'])->name('payment.notification');
+Route::get('/payment/success',       [PaymentController::class, 'success'])->name('payment.success');
 
+]);
+```
+---
 ## 🛡️ Webhook Verification
 
 > [!CAUTION]
