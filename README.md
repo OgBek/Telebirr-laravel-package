@@ -307,28 +307,116 @@ Run the tests with:
 ```bash
 composer test
 ```
+---
+> [!CAUTION]
+> ### 🛡️ Production Use Requires Care
+> This SDK is actively maintained, but it has **not yet undergone extensive real-world production validation**.
+>
+> While it may work correctly in development and staging environments, you should **not assume production-grade reliability by default**.
+>
+> Before deploying to production, it is strongly recommended to:
+>
+> - Audit the codebase and dependencies
+> - Test against real Telebirr workflows and edge cases
+> - Validate callback, retry, and failure-handling behavior
+> - Monitor transactions and logs closely
+> - Keep fallback and recovery mechanisms in place
+>
+> Production deployment should always include your own security review, operational safeguards, and risk assessment.
+---
+
+# ❓ FAQ
+
+> [!QUESTION]
+>
+> ### 🔐 Does Telebirr use RSA-PSS or PKCS1?
+>
+> By default, newer Telebirr integrations use **RSA-PSS** signatures.
+>
+> If your merchant configuration still requires PKCS1 v1.5, you can switch modes using:
+>
+> ```env
+> TELEBIRR_SIGNATURE_PADDING=pkcs1
+> ```
 
 ---
 
-## ❓ FAQ
-
-### Does Telebirr use RSA-PSS or PKCS1?
-By default, recent Telebirr implementations use RSA-PSS. You can switch to PKCS1 by setting `TELEBIRR_SIGNATURE_PADDING=pkcs1`.
-
-### Why am I getting 60200099?
-This signature verification failure is commonly caused by including wrong fields in the signed payload, padding mode mismatch, or wrong keys. See # Common Errors.
-
-### How do I verify webhooks?
-Use the `Telebirr::handleWebhook($request)` method. It automatically performs deterministic canonicalization, RSA signature verification, nonce replay checking, and timestamp validation.
-
-### How do I use Telebirr H5 in Laravel?
-Generate the checkout URL using `Telebirr::createOrder('Title', $amount)` and simply redirect the user using `return redirect()->away($url)`.
-
-### Can I use this package without Laravel?
-Yes, the core SDK services (`SignatureService`, `TelebirrHttpClient`) are framework-agnostic and can be instantiated directly.
+> [!WARNING]
+>
+> ### 🚨 Why am I getting `60200099`?
+>
+> This error usually indicates a **signature verification failure**.
+>
+> Common causes include:
+>
+> * Wrong fields included in the signed payload
+> * Incorrect field ordering
+> * RSA padding mismatch (`PSS` vs `PKCS1`)
+> * Invalid merchant/public/private keys
+> * Modified callback payloads
+>
+> See the **Common Errors** section for detailed troubleshooting steps.
 
 ---
 
-## 📄 License
+> [!TIP]
+>
+> ### 🪝 How do I verify webhooks?
+>
+> Use the built-in webhook handler:
+>
+> ```php
+> Telebirr::handleWebhook($request);
+> ```
+>
+> It automatically performs:
+>
+> * Deterministic payload canonicalization
+> * RSA signature verification
+> * Nonce replay protection
+> * Timestamp validation
 
-This SDK is open-sourced software licensed under the [MIT License](LICENSE).
+---
+
+> [!TIP]
+>
+> ### 🌐 How do I use Telebirr H5 in Laravel?
+>
+> Generate the checkout URL:
+>
+> ```php
+> $url = Telebirr::createOrder('Order Title', $amount);
+> ```
+>
+> Then redirect the user:
+>
+> ```php
+> return redirect()->away($url);
+> ```
+
+---
+
+> [!NOTE]
+>
+> ### ⚙️ Can I use this package without Laravel?
+>
+> Yes.
+>
+> Core services like:
+>
+> * `SignatureService`
+> * `TelebirrHttpClient`
+>
+> are framework-agnostic and can be used independently in any PHP application.
+
+---
+
+# 📄 License
+
+> [!IMPORTANT]
+>
+> ### MIT License
+>
+> This SDK is released under the **MIT License**.
+>
+> You are free to use, modify, distribute, and integrate it into both personal and commercial projects.
