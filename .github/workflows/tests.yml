@@ -28,7 +28,17 @@ jobs:
 
       - name: Install dependencies and Larastan dynamically
         run: |
-          composer require --dev "larastan/larastan:^3.0" "illuminate/support:${{ matrix.laravel }}" "illuminate/http:${{ matrix.laravel }}" --no-update
+          case "${{ matrix.laravel }}" in
+            11.*)
+              composer require --dev "larastan/larastan:^3.0" "illuminate/support:${{ matrix.laravel }}" "illuminate/http:${{ matrix.laravel }}" "orchestra/testbench:^9.0" --no-update
+              ;;
+            12.*)
+              composer require --dev "larastan/larastan:^3.0" "illuminate/support:${{ matrix.laravel }}" "illuminate/http:${{ matrix.laravel }}" "orchestra/testbench:^10.0" --no-update
+              ;;
+            13.*)
+              composer require --dev "larastan/larastan:^3.0" "illuminate/support:${{ matrix.laravel }}" "illuminate/http:${{ matrix.laravel }}" "orchestra/testbench:^11.0" --no-update
+              ;;
+          esac
           composer update --prefer-dist --no-interaction --with-all-dependencies
 
       - name: Execute Static Analysis (PHPStan)
