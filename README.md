@@ -17,7 +17,7 @@ This package solves the complex implementation details of Ethiopia's payment gat
 
 ---
 
-## # Features
+## 🎨 Features
 
 ✨ **Production-Grade Webhook Handling**  
 - **Unified Webhook Verification:** Parse and verify incoming webhook requests automatically via `Telebirr::handleWebhook(Request $request)`.
@@ -33,7 +33,7 @@ This package solves the complex implementation details of Ethiopia's payment gat
 
 ---
 
-## # Installation
+## 📦 Installation
 
 Install the package into your project using Composer:
 
@@ -49,7 +49,7 @@ php artisan vendor:publish --tag="telebirr-config"
 
 ---
 
-## # Quick Start
+## ⚡ Quick Start
 
 Add your credentials to your `.env` file:
 
@@ -67,36 +67,66 @@ TELEBIRR_RETURN_URL=https://yourdomain.com/payment/success
 TELEBIRR_SIGNATURE_PADDING=pss
 ```
 
-> **Tip: Smart Key Storage Flexibility**
+> [!TIP]
+> 💡 **Smart Key Storage Flexibility**
 > To avoid multiline `.env` string issues, the SDK supports three ways to load keys:
-> 
 > - **Raw Base64**: Paste just the raw string! The SDK automatically calculates chunking and injects `-----BEGIN PRIVATE KEY-----` boundaries for you.
 > - **File Path**: `TELEBIRR_PRIVATE_KEY="file:///var/www/keys/private_key.pem"`
 > - **Base64 Strict**: `TELEBIRR_PRIVATE_KEY="base64:LS0tLS1CRUdJ..."`
 
-> **Tip: Sandbox SSL Issue**
+> [!TIP]
+> 💡 **Sandbox SSL Issue**
 > Adding `TELEBIRR_SSL_VERIFY=false` to your `.env` file resolves the "unable to get local issuer certificate" error when connecting to the Telebirr sandbox API.
 
 ---
 
-## # H5 Payment Example
+## 📱 H5 Payment Controller Example
+
+Below is the recommended controller code you should use when integrating our package.
 
 ```php
-use Bekambeyene\Telebirr\Facades\Telebirr;
+namespace App\Http\Controllers;
 
-public function checkout()
+use Illuminate\Http\Request;
+use Bekambeyene\Telebirr\Facades\Telebirr;
+use Bekambeyene\Telebirr\Exceptions\TelebirrException;
+use Bekambeyene\Telebirr\Exceptions\TelebirrServerException;
+use Illuminate\Support\Facades\Log;
+
+class PaymentController extends Controller
 {
-    // Returns the H5 redirect URL
-    $paymentUrl = Telebirr::createOrder('Premium Subscription', 250.00);
-    return redirect()->away($paymentUrl);
+    /**
+     * Initiate an H5 payment and redirect the user.
+     */
+    public function checkout(Request $request)
+    {
+        try {
+            // Provide a clear subject, amount, and optionally a custom order ID
+            $paymentUrl = Telebirr::createOrder('Premium Subscription', 250.00, 'ORDER-' . uniqid());
+            
+            // Redirect the user to the generated H5 Telebirr Checkout URL
+            return redirect()->away($paymentUrl);
+            
+        } catch (TelebirrServerException $e) {
+            // 60200087: The Telebirr gateway is busy or syncing
+            Log::warning('Telebirr server status exception: ' . $e->getMessage());
+            return back()->with('error', 'Telebirr payment services are currently busy. Please try again in a few moments.');
+            
+        } catch (TelebirrException $e) {
+            // Configuration or generic SDK error
+            Log::error('Telebirr config error: ' . $e->getMessage());
+            return back()->with('error', 'Failed to initiate payment.');
+        }
+    }
 }
 ```
 
 ---
 
-## # Webhook Verification
+## 🛡️ Webhook Verification
 
-> **Caution: CSRF Middleware Exception Required!**
+> [!CAUTION]
+> 🚨 **<span style="color:red">CSRF Middleware Exception Required!</span>**
 > Telebirr sends webhooks directly from its servers via a POST request. It does not carry a Laravel CSRF token. If you place your webhook route in `routes/web.php` without an exception, Laravel will instantly block it with a 419 Page Expired error.
 > 
 > **For Laravel 11+:** In `bootstrap/app.php`:
@@ -106,24 +136,49 @@ public function checkout()
 > `protected $except = ['payment/notification'];`
 
 ```php
+namespace App\Http\Controllers;
+
+use Illuminate\Http\Request;
 use Bekambeyene\Telebirr\Facades\Telebirr;
+use Bekambeyene\Telebirr\Exceptions\InvalidSignatureException;
+use Bekambeyene\Telebirr\Exceptions\TimestampExpiredException;
+use Bekambeyene\Telebirr\Exceptions\ReplayAttackException;
+use Illuminate\Support\Facades\Log;
 
-public function handleWebhook(Request $request)
+class WebhookController extends Controller
 {
-    // Automatically validates signature, timestamp fresh window, and checks duplicate nonces
-    $payload = Telebirr::handleWebhook($request);
+    public function handle(Request $request)
+    {
+        try {
+            // Automatically validates signature, timestamp fresh window, and checks duplicate nonces
+            $payload = Telebirr::handleWebhook($request);
 
-    if ($payload['trade_status'] === 'PAY_SUCCESS') {
-        // Process order securely...
+            if ($payload['trade_status'] === 'PAY_SUCCESS') {
+                // Process order securely...
+            }
+
+            return response('success');
+            
+        } catch (InvalidSignatureException $e) {
+            Log::error('Webhook Invalid Signature: ' . $e->getMessage());
+            return response('invalid signature', 403);
+        } catch (TimestampExpiredException $e) {
+            Log::error('Webhook Request Expired: ' . $e->getMessage());
+            return response('request expired', 403);
+        } catch (ReplayAttackException $e) {
+            Log::error('Replay Attack detected: ' . $e->getMessage());
+            return response('request already processed', 409);
+        } catch (\Exception $e) {
+            Log::error('Webhook handling failed: ' . $e->getMessage());
+            return response('error', 500);
+        }
     }
-
-    return response('success');
 }
 ```
 
 ---
 
-## # Signature Troubleshooting
+## 🔍 Signature Troubleshooting
 
 Different Telebirr endpoints use different signature generation rules:
 
@@ -135,11 +190,11 @@ When launching H5 web checkout redirects, Telebirr expects the URL signature to 
 - `appid`, `merch_code`, `nonce_str`, `prepay_id`, `timestamp`.
 
 > [!WARNING]
-> Do **NOT** sign `version`, `trade_type`, `sign_type`, or `redirect_url`. These optional query parameters must be appended to the redirect URL *after* generating the signature. Adding them to the signed payload will cause intermittent signature failures (error `60200099`).
+> ⚠️ **Do NOT sign `version`, `trade_type`, `sign_type`, or `redirect_url`.** These optional query parameters must be appended to the redirect URL *after* generating the signature. Adding them to the signed payload will cause intermittent signature failures (error `60200099`).
 
 ---
 
-## # Common Errors
+## ❌ Common Errors
 
 ### `60200099 Verify the sign field failed`
 This error means the public key on Telebirr's server cannot verify the signature generated by your private key.
@@ -152,7 +207,7 @@ This status indicates the Telebirr gateway/merchant sync services are busy, down
 
 ---
 
-## # Production Best Practices
+## ✅ Production Best Practices
 
 - **Clock Synchronization (NTP):** Ensure clock synchronization is enabled on your production servers.
 - **Idempotency & Database Locks:** Acquire database locks on transactions during callback handling.
@@ -160,7 +215,7 @@ This status indicates the Telebirr gateway/merchant sync services are busy, down
 
 ---
 
-## # Testing
+## 🧪 Testing
 
 Run the tests with:
 ```bash
@@ -169,7 +224,7 @@ composer test
 
 ---
 
-## # FAQ
+## ❓ FAQ
 
 ### Does Telebirr use RSA-PSS or PKCS1?
 By default, recent Telebirr implementations use RSA-PSS. You can switch to PKCS1 by setting `TELEBIRR_SIGNATURE_PADDING=pkcs1`.
@@ -188,6 +243,6 @@ Yes, the core SDK services (`SignatureService`, `TelebirrHttpClient`) are framew
 
 ---
 
-## # License
+## 📄 License
 
 This SDK is open-sourced software licensed under the [MIT License](LICENSE).
